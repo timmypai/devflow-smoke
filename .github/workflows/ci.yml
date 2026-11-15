@@ -56,31 +56,31 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     env:
-      GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.GITHUB_SHA }}
+          ref: ${{ env.SOURCE_SHA }}
       - uses: actions/setup-python@v5
         if: matrix.label != 'oracle'
         with:
           python-version: '3.14'
       - name: isolate evidence
-        run: .devflow/prepare-evidence.sh
+        run: GITHUB_SHA="$SOURCE_SHA" .devflow/prepare-evidence.sh
       - name: ephemeral compose service
-        run: .devflow/up.sh
+        run: GITHUB_SHA="$SOURCE_SHA" .devflow/up.sh
       - name: HTTP and real browser journeys
-        run: .devflow/verify.sh
+        run: GITHUB_SHA="$SOURCE_SHA" .devflow/verify.sh
       - name: cleanup ephemeral project
         if: always() && env.DEVFLOW_VERIFY_PROJECT != ''
         run: |
           set -a; . .devflow/config.env; set +a
           export DEVFLOW_PORT=0
-          docker compose -p "$DEVFLOW_VERIFY_PROJECT" -f deploy/compose.yml down --volumes --remove-orphans
+          GITHUB_SHA="$SOURCE_SHA" docker compose -p "$DEVFLOW_VERIFY_PROJECT" -f deploy/compose.yml down --volumes --remove-orphans
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: devflow-evidence-pr-${{ env.GITHUB_SHA }}-${{ matrix.label }}
+          name: devflow-evidence-pr-${{ env.SOURCE_SHA }}-${{ matrix.label }}
           path: .devflow/evidence/
           if-no-files-found: error
           retention-days: 14

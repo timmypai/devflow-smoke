@@ -4,7 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . .devflow/config.env; set +a
 : "${GITHUB_SHA:?}" "${GITHUB_ENV:?}"
-[[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+[[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+  printf 'checkout SHA mismatch: HEAD=%s expected=%s\n' "$(git rev-parse HEAD)" "$GITHUB_SHA" >&2
+  exit 1
+}
 export DEVFLOW_PORT=0
 export DEVFLOW_IMAGE="devflow/${DEVFLOW_APP}:verify-${GITHUB_SHA}"
 project="devflow-verify-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${RUNNER_ARCH,,}"

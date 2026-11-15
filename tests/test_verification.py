@@ -115,15 +115,17 @@ class WorkflowTests(unittest.TestCase):
     def test_both_workflows_preserve_evidence_on_failure(self):
         for filename in ('ci.yml', 'deploy.yml'):
             content = (ROOT / '.github/workflows' / filename).read_text()
-            self.assertIn('run: .devflow/prepare-evidence.sh', content)
+            self.assertIn('.devflow/prepare-evidence.sh', content)
             upload = content.split('uses: actions/upload-artifact@v4', 1)[1]
             self.assertIn('if: always()', upload)
             self.assertIn('if-no-files-found: error', upload)
             self.assertIn('path: .devflow/evidence/', upload)
         ci = (ROOT / '.github/workflows/ci.yml').read_text()
         self.assertIn('runner: [ubuntu-latest, ubuntu-24.04-arm]', ci)
-        self.assertIn('run: .devflow/verify.sh', ci)
-        self.assertIn('ref: ${{ env.GITHUB_SHA }}', ci)
+        self.assertIn('run: GITHUB_SHA="$SOURCE_SHA" .devflow/verify.sh', ci)
+        self.assertIn('run: GITHUB_SHA="$SOURCE_SHA" .devflow/up.sh', ci)
+        self.assertNotIn('      GITHUB_SHA:', ci)
+        self.assertIn('ref: ${{ env.SOURCE_SHA }}', ci)
         self.assertIn('.devflow/container-smoke.sh', ci)
         deploy = (ROOT / '.github/workflows/deploy.yml').read_text()
         self.assertIn("if: github.ref == 'refs/heads/main'", deploy)
