@@ -15,7 +15,8 @@ if [[ "$security" == *rootless* ]]; then user=0:0; fi
 timeout 300 docker run --rm --name "$name" --init --ipc=host \
   --network "$DEVFLOW_NET" --user "$user" \
   -e HOME=/tmp -e CI=1 -e DEVFLOW_INNER_URL -e DEVFLOW_EXPECTED_REVISION \
-  -e DEVFLOW_VERSION_ENDPOINT -e DEVFLOW_EVIDENCE="/work/$relative" \
+  -e DEVFLOW_VERSION_ENDPOINT -e DEVFLOW_STATS_ENDPOINT -e DEVFLOW_VERIFY_PHASE \
+  -e DEVFLOW_EVIDENCE="/work/$relative" \
   -v "$PWD:/work" -w /work/.devflow/ui \
   mcr.microsoft.com/playwright:v1.58.2-noble \
   bash -ec 'npm ci --no-audit --no-fund && npx --no-install playwright test'

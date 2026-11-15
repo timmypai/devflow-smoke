@@ -21,3 +21,5 @@ image_id=$(docker inspect --format '{{.Image}}' "$container")
 revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_id")
 printf 'source=%s container=%s image=%s revision=%s\n' "$GITHUB_SHA" "$container" "$image_id" "$revision"
 [[ "$revision" == "$GITHUB_SHA" ]]
+stats_endpoint=$(docker image inspect --format '{{index .Config.Labels "io.devflow.stats-endpoint"}}' "$image_id")
+[[ "$stats_endpoint" == 1 ]]
