@@ -42,3 +42,12 @@ jobs:
           touch deploy/.env
           GITHUB_SHA="$SOURCE_SHA" DEVFLOW_IMAGE="devflow/${DEVFLOW_APP}:${SOURCE_SHA:0:12}" \
             docker compose -f deploy/compose.yml config --quiet
+
+  # Keep this check name; list every other job in needs.
+  devflow-ci:
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: all jobs passed
+        run: test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
