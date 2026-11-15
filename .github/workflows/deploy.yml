@@ -19,5 +19,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: deploy, host smoke and provenance
-        run: .devflow/deploy.sh
+      - name: isolate evidence
+        run: .devflow/prepare-evidence.sh
+      - name: deploy, host smoke, provenance and browser journeys
+        shell: bash  # Explicit bash enables -o pipefail; tee must not hide rollback/failure.
+        run: .devflow/deploy.sh 2>&1 | tee .devflow/evidence/deploy.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: devflow-evidence-deploy-${{ github.sha }}
+          path: .devflow/evidence/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,3 +1,5 @@
 deploy/.env
 .venv-test/
 __pycache__/
+.devflow/evidence/
+.devflow/ui/node_modules/

@@ -97,6 +97,20 @@ class DeploymentTests(unittest.TestCase):
         (self.workspace / "bin").mkdir()
         shutil.copy(ROOT / ".devflow/deploy.sh", self.workspace / ".devflow/deploy.sh")
         shutil.copy(ROOT / "smoke.py", self.workspace / "smoke.py")
+        # Explicit verification boundary double: these tests prove orchestration,
+        # not Docker or Chromium. Real browser evidence comes from Actions.
+        verifier = self.workspace / ".devflow/verify.sh"
+        verifier.write_text('''#!/usr/bin/env python3
+import json, os
+from pathlib import Path
+state = json.loads(Path("state.json").read_text())
+with open("verify.jsonl", "a") as log:
+    log.write(json.dumps({k: os.environ[k] for k in (
+        "GITHUB_SHA", "DEVFLOW_EXPECTED_REVISION", "DEVFLOW_VERSION_ENDPOINT",
+        "DEVFLOW_BASE_URL", "DEVFLOW_NET", "DEVFLOW_INNER_URL")}) + "\\n")
+raise SystemExit(1 if state.get("verify_fail") and not state.get("rollback") else 0)
+''')
+        verifier.chmod(0o755)
         config = (ROOT / ".devflow/config.env").read_text().replace("DEVFLOW_PORT=18100", f"DEVFLOW_PORT={server.server_port}")
         (self.workspace / ".devflow/config.env").write_text(config)
         docker = self.workspace / "bin/docker"
@@ -129,6 +143,25 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f'"revision": "{self.sha}"', result.stdout)
         self.assertTrue(any(call["args"][0] == "tag" for call in calls))
+
+    def test_browser_failure_rolls_back_without_marking_live(self):
+        self.state["verify_fail"] = True
+        result, calls = self.deploy()
+        self.assert_rollback(result, calls)
+        self.assertIn("devflow: rollback healthy", result.stderr)
+        verifications = [json.loads(line) for line in (self.workspace / "verify.jsonl").read_text().splitlines()]
+        self.assertEqual([v["DEVFLOW_EXPECTED_REVISION"] for v in verifications], [self.sha, LIVE_SHA])
+        self.assertEqual([v["GITHUB_SHA"] for v in verifications], [self.sha, self.sha])
+        self.assertTrue(all(v["DEVFLOW_NET"] == "devflow-devflow-smoke_default" for v in verifications))
+        self.assertTrue(all(v["DEVFLOW_INNER_URL"] == "http://app:8080" for v in verifications))
+
+    def test_legacy_rollback_journey_uses_old_contract(self):
+        self.state.update(verify_fail=True, version_endpoint="")
+        result, calls = self.deploy()
+        self.assert_rollback(result, calls)
+        verifications = [json.loads(line) for line in (self.workspace / "verify.jsonl").read_text().splitlines()]
+        self.assertEqual(verifications[-1]["DEVFLOW_VERSION_ENDPOINT"], "")
+        self.assertEqual(verifications[-1]["DEVFLOW_EXPECTED_REVISION"], LIVE_SHA)
 
     def test_wrong_runtime_rolls_back_with_live_revision_but_exits_failure(self):
         self.state["candidate_bad_http"] = True

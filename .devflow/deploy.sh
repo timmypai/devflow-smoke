@@ -51,7 +51,17 @@ echo "::group::build ${DEVFLOW_IMAGE}"
 "${COMPOSE[@]}" build --pull
 echo "::endgroup::"
 
-if "${COMPOSE[@]}" up -d --remove-orphans && verify_deployment "$SHA"; then
+# Workflow clears the evidence root once; attempts isolate candidate and rollback.
+export DEVFLOW_EVIDENCE="${DEVFLOW_EVIDENCE:-$PWD/.devflow/evidence}"
+run_journeys() {
+  DEVFLOW_BASE_URL="http://127.0.0.1:${DEVFLOW_PORT}" \
+  DEVFLOW_NET="devflow-${DEVFLOW_APP}_default" \
+  DEVFLOW_INNER_URL="http://app:${DEVFLOW_APP_PORT}" \
+  DEVFLOW_EXPECTED_REVISION="$1" DEVFLOW_VERSION_ENDPOINT="${2-1}" \
+    .devflow/verify.sh
+}
+
+if "${COMPOSE[@]}" up -d --remove-orphans && verify_deployment "$SHA" && run_journeys "$SHA"; then
   docker tag "${DEVFLOW_IMAGE}" "${REPO_IMAGE}:live"
   echo "devflow: ${DEVFLOW_APP} ${SHA:0:12} healthy on 127.0.0.1:${DEVFLOW_PORT}${DEVFLOW_HEALTH_PATH:-}"
   exit 0
@@ -69,7 +79,8 @@ if docker image inspect "${REPO_IMAGE}:live" >/dev/null 2>&1; then
   esac
   echo "devflow: rolling back to ${REPO_IMAGE}:live" >&2
   if GITHUB_SHA="$rollback_revision" DEVFLOW_IMAGE="${REPO_IMAGE}:live" "${COMPOSE[@]}" up -d --no-build --remove-orphans \
-      && verify_deployment "$rollback_revision" "$version_endpoint"; then
+      && verify_deployment "$rollback_revision" "$version_endpoint" \
+      && run_journeys "$rollback_revision" "$version_endpoint"; then
     echo "devflow: rollback healthy" >&2
   else
     echo "::error::devflow: rollback also unhealthy" >&2
