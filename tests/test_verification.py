@@ -1,5 +1,6 @@
 """Failure-path orchestration probes; fixture files are NOT browser evidence."""
 import importlib.util
+import base64
 import itertools
 import json
 import os
@@ -9,10 +10,9 @@ import subprocess
 import tempfile
 import threading
 import unittest
-from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
-from app import Handler
+from app import Handler, Server
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = 'a' * 40
@@ -26,7 +26,22 @@ class VerificationTests(unittest.TestCase):
             shutil.copy(ROOT / '.devflow' / name, self.workspace / '.devflow' / name)
         shutil.copy(ROOT / 'smoke.py', self.workspace / 'smoke.py')
         self.enterContext(patch.dict(os.environ, DEVFLOW_REVISION=SHA))
-        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        class VerificationHandler(Handler):
+            legacy = False
+
+            def do_GET(self):
+                if self.legacy and self.path == '/':
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(b'hello devflow')
+                elif self.legacy and self.path in ('/stats', '/version'):
+                    self.send_error(404)
+                else:
+                    super().do_GET()
+
+        self.handler = VerificationHandler
+        server = Server(('127.0.0.1', 0), VerificationHandler)
         thread = threading.Thread(target=server.serve_forever)
         thread.start()
         self.addCleanup(server.server_close)
@@ -42,13 +57,24 @@ class VerificationTests(unittest.TestCase):
                               env={**os.environ, 'GITHUB_SHA': SHA, 'DEVFLOW_BASE_URL': self.url, **env},
                               text=True, capture_output=True, timeout=10)
 
+    def test_candidate_cannot_disable_stats_or_version(self):
+        for env in ({'DEVFLOW_STATS_ENDPOINT': ''}, {'DEVFLOW_VERSION_ENDPOINT': ''},
+                    {'DEVFLOW_STATS_ENDPOINT': 'unknown'}):
+            result = self.verify('echo browser-must-not-run; exit 99\n', **env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('browser-must-not-run', result.stdout)
+
     def test_empty_legacy_marker_does_not_reenable_version(self):
+        self.handler.legacy = True
         result = self.verify('test "$DEVFLOW_VERSION_ENDPOINT" = "" || exit 99; exit 7\n',
-                             DEVFLOW_VERSION_ENDPOINT='')
+                             DEVFLOW_VERSION_ENDPOINT='', DEVFLOW_STATS_ENDPOINT='',
+                             DEVFLOW_VERIFY_PHASE='rollback')
         self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
         attempt = next((self.workspace / '.devflow/evidence').glob('attempt-*'))
         self.assertNotIn('GET /version', (attempt / 'http.log').read_text())
-        self.assertTrue((attempt / 'legacy.txt').exists())
+        self.assertNotIn('GET /stats', (attempt / 'http.log').read_text())
+        self.assertIn('AC-1/AC-2 NOT verified', (attempt / 'legacy.txt').read_text())
+        self.assertEqual((attempt / 'phase.txt').read_text().strip(), 'rollback')
 
     def test_browser_nonzero_is_fatal_and_retains_failure_evidence(self):
         result = self.verify('echo actual-browser-failure; exit 7\n')
@@ -72,21 +98,41 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(len(attempts), 3)
         self.assertEqual(sum((d / 'result.txt').exists() for d in attempts), 1)
 
-    def test_evidence_validator_rejects_skipped_report(self):
+    def test_evidence_validator_rejects_missing_evidence(self):
         spec = importlib.util.spec_from_file_location('evidence', ROOT / '.devflow/check-evidence.py')
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        for name in ('source-sha.txt', 'expected-revision.txt', 'runner.txt', 'http.log', 'browser.log',
-                     'baseline-home.png', 'playwright.json', 'playwright-report/index.html'):
+        # Deliberately incomplete evidence must be rejected, never used as proof.
+        (self.workspace / 'contract.txt').write_text('stats')
+        with self.assertRaisesRegex(ValueError, 'missing required evidence'):
+            module.check(self.workspace)
+
+    def test_evidence_validator_rejects_skipped_report(self):
+        spec = importlib.util.spec_from_file_location('evidence', ROOT / '.devflow/check-evidence.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        # Unit-test fixtures only; never uploaded or reported as browser evidence.
+        for name in ('source-sha.txt', 'expected-revision.txt', 'runner.txt', 'phase.txt', 'http.log',
+                     'browser.log', 'AC-1.log', 'AC-2.log', 'AC-2-http-dom.json',
+                     'playwright.json', 'playwright-report/index.html', 'journeys.log'):
             file = self.workspace / name
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text('unit-test fixture')
-        (self.workspace / 'baseline-home.png').write_bytes(b'\x89PNG\r\n\x1a\nfixture')
-        (self.workspace / 'playwright.json').write_text(json.dumps({'stats': {
-            'expected': 0, 'unexpected': 0, 'skipped': 1, 'flaky': 0}}))
-        with self.assertRaisesRegex(ValueError, 'did not pass'):
-            module.check(self.workspace)
+        for name in ('source-sha.txt', 'expected-revision.txt'):
+            (self.workspace / name).write_text(SHA)
+        (self.workspace / 'phase.txt').write_text('candidate')
+        (self.workspace / 'contract.txt').write_text('stats')
+        (self.workspace / 'AC-2.png').write_bytes(base64.b64decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1cAAAAASUVORK5CYII='))
+        for stats in ({'expected': 0, 'unexpected': 0, 'skipped': 1, 'flaky': 0},
+                      {'expected': 0, 'unexpected': 1, 'skipped': 0, 'flaky': 0},
+                      {'expected': 1, 'unexpected': 0, 'skipped': 0, 'flaky': 1}):
+            with self.subTest(stats=stats):
+                (self.workspace / 'playwright.json').write_text(json.dumps({'stats': stats}))
+                with self.assertRaisesRegex(ValueError, 'did not pass'):
+                    module.check(self.workspace)
+
 
 
 class WorkflowTests(unittest.TestCase):

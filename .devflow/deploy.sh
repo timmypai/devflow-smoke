@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # devflow 部署：在 Oracle VM self-hosted runner（rootless Docker）上執行。
-# build → up → 三端點 smoke / provenance；失敗時回滾到上一個成功版本。
+# build → up → stats/HTML journeys / provenance；失敗時回滾到上一個成功版本。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . .devflow/config.env; set +a
@@ -25,13 +25,18 @@ healthy() {
 }
 
 verify_deployment() {
-  local expected_revision="$1" version_endpoint="${2-1}"
-  local container image_id revision running
+  local expected_revision="$1" version_endpoint="${2-1}" stats_endpoint="${3-1}"
+  local args=()
+  if [[ "$stats_endpoint" != 1 ]]; then
+    args+=(--legacy-home)
+    echo "devflow: legacy homepage rollback; stats AC-1/AC-2 NOT verified" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  fi
+  local container image_id revision running actual_stats actual_version
   if [[ "$version_endpoint" == 1 ]]; then
-    healthy --expected-revision "$expected_revision" || return 1
+    healthy "${args[@]}" --expected-revision "$expected_revision" || return 1
   else
     echo "devflow: legacy rollback; checking /health and / only, /version NOT verified" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-    healthy || return 1
+    healthy "${args[@]}" || return 1
   fi
   container=$("${COMPOSE[@]}" ps -q app) || return 1
   [[ -n "$container" ]] || return 1
@@ -44,7 +49,9 @@ verify_deployment() {
     printf 'expected revision=%s\n\n' "$expected_revision"
     printf 'container=%s\n\nimage=%s\n\nOCI revision=%s\n' "$container" "$image_id" "$revision"
   } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-  [[ "$running" == true && "$revision" == "$expected_revision" ]]
+  actual_stats=$(docker image inspect --format '{{index .Config.Labels "io.devflow.stats-endpoint"}}' "$image_id") || return 1
+  actual_version=$(docker image inspect --format '{{index .Config.Labels "io.devflow.version-endpoint"}}' "$image_id") || return 1
+  [[ "$running" == true && "$revision" == "$expected_revision" && "$actual_stats" == "$stats_endpoint" && "$actual_version" == "$version_endpoint" ]]
 }
 
 echo "::group::build ${DEVFLOW_IMAGE}"
@@ -58,6 +65,7 @@ run_journeys() {
   DEVFLOW_NET="devflow-${DEVFLOW_APP}_default" \
   DEVFLOW_INNER_URL="http://app:${DEVFLOW_APP_PORT}" \
   DEVFLOW_EXPECTED_REVISION="$1" DEVFLOW_VERSION_ENDPOINT="${2-1}" \
+  DEVFLOW_STATS_ENDPOINT="${3-1}" DEVFLOW_VERIFY_PHASE="${4-candidate}" \
     .devflow/verify.sh
 }
 
@@ -77,10 +85,16 @@ if docker image inspect "${REPO_IMAGE}:live" >/dev/null 2>&1; then
     1|''|'<no value>') ;;
     *) echo "::error::unsupported rollback version contract" >&2; exit 1 ;;
   esac
+  stats_endpoint=$(docker image inspect --format '{{index .Config.Labels "io.devflow.stats-endpoint"}}' "${REPO_IMAGE}:live")
+  case "$stats_endpoint" in
+    1) [[ "$version_endpoint" == 1 ]] || { echo "::error::inconsistent rollback capabilities" >&2; exit 1; } ;;
+    ''|'<no value>') ;;
+    *) echo "::error::unsupported rollback stats contract" >&2; exit 1 ;;
+  esac
   echo "devflow: rolling back to ${REPO_IMAGE}:live" >&2
   if GITHUB_SHA="$rollback_revision" DEVFLOW_IMAGE="${REPO_IMAGE}:live" "${COMPOSE[@]}" up -d --no-build --remove-orphans \
-      && verify_deployment "$rollback_revision" "$version_endpoint" \
-      && run_journeys "$rollback_revision" "$version_endpoint"; then
+      && verify_deployment "$rollback_revision" "$version_endpoint" "$stats_endpoint" \
+      && run_journeys "$rollback_revision" "$version_endpoint" "$stats_endpoint" rollback; then
     echo "devflow: rollback healthy" >&2
   else
     echo "::error::devflow: rollback also unhealthy" >&2
