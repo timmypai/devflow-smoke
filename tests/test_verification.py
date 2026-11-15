@@ -82,6 +82,15 @@ class VerificationTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_compose_project_accepts_github_uppercase_runner_arch(self):
+        script = (ROOT / '.devflow/up.sh').read_text()
+        assignment = next(line for line in script.splitlines() if line.startswith('project='))
+        for arch in ('X64', 'ARM64'):
+            project = subprocess.check_output(['bash', '-eu', '-c', assignment + '; printf %s "$project"'],
+                env={**os.environ, 'RUNNER_ARCH': arch, 'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1'},
+                text=True)
+            self.assertRegex(project, r'^[a-z0-9][a-z0-9_-]+$')
+
     def test_aggregator_accepts_only_both_success(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         gate = workflow.split('  devflow-ci:', 1)[1]

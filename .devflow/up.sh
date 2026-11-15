@@ -7,7 +7,7 @@ set -a; . .devflow/config.env; set +a
 [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
 export DEVFLOW_PORT=0
 export DEVFLOW_IMAGE="devflow/${DEVFLOW_APP}:verify-${GITHUB_SHA}"
-project="devflow-verify-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${RUNNER_ARCH:?}"
+project="devflow-verify-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${RUNNER_ARCH,,}"
 COMPOSE=(docker compose -p "$project" -f deploy/compose.yml)
 touch deploy/.env
 # Record before build so workflow always-cleanup works after partial startup.
