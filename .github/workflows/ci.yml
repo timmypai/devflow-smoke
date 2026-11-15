@@ -34,3 +34,11 @@ jobs:
           .devflow/test.sh
       - name: docker build, run, host smoke and revision
         run: GITHUB_SHA="$SOURCE_SHA" .devflow/container-smoke.sh
+      - name: validate deployment compose contract
+        run: |
+          set -a
+          . .devflow/config.env
+          set +a
+          touch deploy/.env
+          GITHUB_SHA="$SOURCE_SHA" DEVFLOW_IMAGE="devflow/${DEVFLOW_APP}:${SOURCE_SHA:0:12}" \
+            docker compose -f deploy/compose.yml config --quiet
