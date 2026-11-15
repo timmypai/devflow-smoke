@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 : "${DEVFLOW_BASE_URL:?}" "${GITHUB_SHA:?}"
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
 export DEVFLOW_EXPECTED_REVISION="${DEVFLOW_EXPECTED_REVISION:-$GITHUB_SHA}"
-export DEVFLOW_VERSION_ENDPOINT="${DEVFLOW_VERSION_ENDPOINT:-1}"
+export DEVFLOW_VERSION_ENDPOINT="${DEVFLOW_VERSION_ENDPOINT-1}"
 export DEVFLOW_NET="${DEVFLOW_NET:-host}"
 export DEVFLOW_INNER_URL="${DEVFLOW_INNER_URL:-$DEVFLOW_BASE_URL}"
 # A new directory per attempt; never accept evidence from an earlier invocation.

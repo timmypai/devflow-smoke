@@ -22,6 +22,7 @@ jobs:
       - name: isolate evidence
         run: .devflow/prepare-evidence.sh
       - name: deploy, host smoke, provenance and browser journeys
+        shell: bash  # Explicit bash enables -o pipefail; tee must not hide rollback/failure.
         run: .devflow/deploy.sh 2>&1 | tee .devflow/evidence/deploy.log
       - uses: actions/upload-artifact@v4
         if: always()

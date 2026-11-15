@@ -34,13 +34,21 @@ class VerificationTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         self.url = f'http://127.0.0.1:{server.server_port}'
 
-    def verify(self, browser_body):
+    def verify(self, browser_body, **env):
         browser = self.workspace / '.devflow/playwright.sh'
         browser.write_text('#!/usr/bin/env bash\n' + browser_body)
         browser.chmod(0o755)
         return subprocess.run(['bash', '.devflow/verify.sh'], cwd=self.workspace,
-                              env={**os.environ, 'GITHUB_SHA': SHA, 'DEVFLOW_BASE_URL': self.url},
+                              env={**os.environ, 'GITHUB_SHA': SHA, 'DEVFLOW_BASE_URL': self.url, **env},
                               text=True, capture_output=True, timeout=10)
+
+    def test_empty_legacy_marker_does_not_reenable_version(self):
+        result = self.verify('test "$DEVFLOW_VERSION_ENDPOINT" = "" || exit 99; exit 7\n',
+                             DEVFLOW_VERSION_ENDPOINT='')
+        self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+        attempt = next((self.workspace / '.devflow/evidence').glob('attempt-*'))
+        self.assertNotIn('GET /version', (attempt / 'http.log').read_text())
+        self.assertTrue((attempt / 'legacy.txt').exists())
 
     def test_browser_nonzero_is_fatal_and_retains_failure_evidence(self):
         result = self.verify('echo actual-browser-failure; exit 7\n')
@@ -119,4 +127,5 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('.devflow/container-smoke.sh', ci)
         deploy = (ROOT / '.github/workflows/deploy.yml').read_text()
         self.assertIn("if: github.ref == 'refs/heads/main'", deploy)
+        self.assertIn('shell: bash', deploy)
         self.assertIn('runs-on: [self-hosted, Linux, ARM64, devflow, oracle]', deploy)
