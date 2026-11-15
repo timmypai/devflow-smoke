@@ -10,6 +10,7 @@ services:
       - .env
     environment:
       PORT: ${DEVFLOW_APP_PORT}
+      DEVFLOW_REVISION: ${GITHUB_SHA:?GITHUB_SHA is required}
     ports:
       - "127.0.0.1:${DEVFLOW_PORT}:${DEVFLOW_APP_PORT}"
     restart: unless-stopped

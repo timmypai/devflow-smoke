@@ -42,6 +42,9 @@ jobs:
           touch deploy/.env
           GITHUB_SHA="$SOURCE_SHA" DEVFLOW_IMAGE="devflow/${DEVFLOW_APP}:${SOURCE_SHA:0:12}" \
             docker compose -f deploy/compose.yml config --quiet
+          GITHUB_SHA="$SOURCE_SHA" DEVFLOW_IMAGE="devflow/${DEVFLOW_APP}:${SOURCE_SHA:0:12}" \
+            DEVFLOW_REVISION=stale-runner-value docker compose -f deploy/compose.yml config --format json | \
+            python3 -c 'import json, os, sys; app = json.load(sys.stdin)["services"]["app"]; assert app["environment"]["DEVFLOW_REVISION"] == os.environ["SOURCE_SHA"]; assert app["build"]["args"]["VCS_REF"] == os.environ["SOURCE_SHA"]'
 
   # Keep this check name; list every other job in needs.
   devflow-ci:
