@@ -1,0 +1,36 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: stdlib unittest (exact head)
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          .devflow/test.sh
+      - name: docker build, run, host smoke and revision
+        run: GITHUB_SHA="$SOURCE_SHA" .devflow/container-smoke.sh
