@@ -5,5 +5,6 @@ event = "PR https://github.com/timmypai/devflow-smoke/pull/9; ADV t_d1245ddb; AD
 root_cause = "The NO-PROOF-AC-3 CI step passed every PR base to a proof that only accepts c7bf3287a5231e12b15dca45a9f6ff9eaeda32a7. Other bases must SKIP this additive step without creating PASS evidence; real proof failures still fail. The defect first exists at c18fbe0cf7820078aea601b556d2dc5db8491d12, after this PR's base; retain its assertion FAIL and head PASS separately, never substitute a missing step on c7bf328 as proof."
 
 [enforcement]
-kind = "journey"
-ref = ".devflow/verify.sh::NO-PROOF-CI-SCOPE"
+kind = "skill-only"
+ref = "devflow-review"
+reason = "The repo-specific historical-evidence CI steps were removed when the contract was reset to the devflow template. Base proofs now come from the template's verify-base job, which runs the PR's own scenarios against the PR's own base, so no step pins an old base. Reviewers reject any CI step that replays evidence tied to a fixed SHA."

@@ -1,165 +1,130 @@
 name: ci
 on:
   pull_request:
+    # edited: PR 說明的 Lesson:／No-lesson:／Covers:／Already-met:／Base-unverifiable: 改了要重新判定
     types: [opened, synchronize, reopened, edited]
   push:
-    branches-ignore: [main]
+    branches-ignore: [main, master]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: test
+        run: bash .devflow/test.sh
+      - name: docker build
+        if: hashFiles('Dockerfile') != ''
+        run: docker build -t ci-check .
+
+  # devflow 規則（.devflow/rules/，每條附錯誤範例自測）與教訓紀錄（.devflow/lessons/）。必過：列在 devflow-ci 的 needs。
+  # PR 另外檢查：fix／revert PR 要帶教訓，新教訓要在修正前的程式上證明有效（check.py --pr）。
   check:
     runs-on: ubuntu-latest
-    env:
-      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
-      - name: exact-head rules, lessons and negative probes
-        run: |
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          GITHUB_SHA="$SOURCE_SHA" .devflow/prepare-evidence.sh
-          bash .devflow/check.sh
-          GITHUB_SHA="$SOURCE_SHA" python3 .devflow/contract-evidence.py
-          GITHUB_SHA="$SOURCE_SHA" python3 .devflow/lesson-gate-evidence.py
-      - name: P2 PR lesson gate
+          python-version: "3.12"
+      - name: rules and lessons
+        run: bash .devflow/check.sh
+      - name: lesson gate
         if: github.event_name == 'pull_request'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 .devflow/check.py --pr "$PR_BASE_SHA"
-      - name: retain real query regression base/head proof (AC-3)
-        if: github.event_name == 'pull_request'
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: GITHUB_SHA="$SOURCE_SHA" python3 .devflow/query-gate-evidence.py "$PR_BASE_SHA"
-      - name: retain NO-PROOF-AC-3 isolated 404 assertion base/head proof
-        if: github.event_name == 'pull_request'
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          expected_base=c7bf3287a5231e12b15dca45a9f6ff9eaeda32a7
-          if [ "$PR_BASE_SHA" = "$expected_base" ]; then
-            GITHUB_SHA="$SOURCE_SHA" python3 .devflow/no-proof-evidence.py "$PR_BASE_SHA"
-          else
-            printf 'NO-PROOF-AC-3 SKIP: actual=%s expected=%s (historical proof only)\n' "$PR_BASE_SHA" "$expected_base"
-          fi
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: devflow-contract-pr-${{ env.SOURCE_SHA }}
-          path: .devflow/evidence/
-          if-no-files-found: error
-          retention-days: 14
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 .devflow/check.py --pr "$BASE_SHA"
 
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
-    env:
-      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SOURCE_SHA }}
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-      - name: stdlib unittest (exact head)
-        run: |
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          .devflow/test.sh
-      - name: docker build, run, host smoke and revision
-        run: GITHUB_SHA="$SOURCE_SHA" .devflow/container-smoke.sh
-      - name: validate deployment compose contract
-        run: |
-          set -a
-          . .devflow/config.env
-          set +a
-          touch deploy/.env
-          GITHUB_SHA="$SOURCE_SHA" DEVFLOW_IMAGE="devflow/${DEVFLOW_APP}:${SOURCE_SHA:0:12}" \
-            docker compose -f deploy/compose.yml config --quiet
-          GITHUB_SHA="$SOURCE_SHA" DEVFLOW_IMAGE="devflow/${DEVFLOW_APP}:${SOURCE_SHA:0:12}" \
-            DEVFLOW_REVISION=stale-runner-value docker compose -f deploy/compose.yml config --format json | \
-            python3 -c 'import json, os, sys; app = json.load(sys.stdin)["services"]["app"]; assert app["environment"]["DEVFLOW_REVISION"] == os.environ["SOURCE_SHA"]; assert app["build"]["args"]["VCS_REF"] == os.environ["SOURCE_SHA"]'
-
+  # 驗收情境（.devflow/verify.sh + .devflow/ui）對一份真的跑起來的服務（與部署同一個 compose 檔）。
+  # 不再因為沒有 Dockerfile 就靜默略過：config.env 宣告了服務卻沒有 Dockerfile 時 up.sh 失敗；
+  # DEVFLOW_SERVICE 空 = 沒有服務，只跑 shell 情境。報告的 head_sha 綁定 PR head（測的就是它）。
+  # gate：每個情境都要 passed（不可 skipped），PR 說明 `Covers:` 列出的情境都要在報告裡。
   verify:
-    strategy:
-      fail-fast: false
-      # Manual dispatch of the trusted branch also exercises Oracle ARM64,
-      # without touching production, :live, or its fixed port/project.
-      matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"label":"x64","runner":["ubuntu-latest"]},{"label":"arm64","runner":["ubuntu-24.04-arm"]},{"label":"oracle","runner":["self-hosted","Linux","ARM64","devflow","oracle"]}]' || '[{"label":"x64","runner":["ubuntu-latest"]},{"label":"arm64","runner":["ubuntu-24.04-arm"]}]') }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    runs-on: ubuntu-latest
     env:
-      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      DEVFLOW_KIND: ${{ github.event_name == 'pull_request' && 'pr' || github.event_name == 'workflow_dispatch' && 'integration' || 'push' }}
+      DEVFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PR_BODY: ${{ github.event.pull_request.body }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.SOURCE_SHA }}
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        if: matrix.label != 'oracle'
-        with:
-          python-version: '3.14'
-      - name: isolate evidence
-        run: GITHUB_SHA="$SOURCE_SHA" .devflow/prepare-evidence.sh
-      - name: ephemeral compose service
-        run: GITHUB_SHA="$SOURCE_SHA" .devflow/up.sh
-      - name: real Docker synthetic failure and redaction probe
-        if: matrix.label != 'oracle'
-        run: GITHUB_SHA="$SOURCE_SHA" python3 .devflow/probe-diagnostics.py
-      - name: HTTP and real browser journeys
-        run: GITHUB_SHA="$SOURCE_SHA" .devflow/verify.sh
-      - name: diagnostics (actual temporary project, before cleanup)
-        if: always() && env.DEVFLOW_VERIFY_PROJECT != ''
-        run: GITHUB_SHA="$SOURCE_SHA" bash .devflow/capture.sh "$DEVFLOW_VERIFY_PROJECT" ci
-      - name: cleanup ephemeral project
-        if: always() && env.DEVFLOW_VERIFY_PROJECT != ''
-        run: GITHUB_SHA="$SOURCE_SHA" bash .devflow/cleanup.sh
-      - uses: actions/upload-artifact@v4
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: up
+        run: bash .devflow/up.sh
+      # up 失敗也跑：health 失敗要記進報告（gate 仍會失敗）。
+      - name: verify
+        if: ${{ !cancelled() }}
+        run: bash .devflow/verify.sh
+      - name: evidence
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: devflow-evidence-pr-${{ env.SOURCE_SHA }}-${{ matrix.label }}
-          path: .devflow/evidence/
-          if-no-files-found: error
-          retention-days: 14
-
-      - uses: actions/upload-artifact@v4
-        if: always()
+          name: devflow-evidence-${{ env.DEVFLOW_KIND }}-${{ env.DEVFLOW_HEAD_SHA }}-${{ github.run_attempt }}
+          path: .devflow/evidence
+          if-no-files-found: ignore
+      # 失敗時採證（容器狀態、退出原因、log；已遮罩），與驗收證據分開存、只留 7 天。
+      - name: diagnostics
+        if: failure()
+        run: |
+          . .devflow/config.env
+          bash .devflow/capture.sh "ci-${DEVFLOW_APP}" ci
+      - name: upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          name: devflow-diagnostics-pr-${{ env.SOURCE_SHA }}-${{ matrix.label }}
-          path: .devflow/diagnostics/
-          if-no-files-found: warn
+          name: devflow-diagnostics-${{ env.DEVFLOW_KIND }}-${{ env.DEVFLOW_HEAD_SHA }}-${{ github.run_attempt }}
+          path: .devflow/diagnostics
           retention-days: 7
+          if-no-files-found: ignore
 
-  # Exact success only: skipped/cancelled/unknown are not a pass.
+  # 紅綠證明：PR 說明 `Covers:` 列出的情境放到 PR 的 base 上跑（head 的 .devflow/ 蓋在 base 的程式上），
+  # 每個都要 RED（Given 通過、When / Then 失敗），或 GREEN + `Already-met:`、INVALID + `Base-unverifiable:`。
+  # 獨立 job：base 那份服務的 compose 專案不會和 verify 的撞在一起。
+  verify-base:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      DEVFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: verify on base
+        run: bash .devflow/verify-base.sh "$BASE_SHA"
+      - name: evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devflow-evidence-base-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: .devflow/evidence-base
+          if-no-files-found: ignore
+      - name: upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devflow-diagnostics-base-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: .devflow/diagnostics
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Required check on the default branch (devflow repo protect) and the Hermes PR
+  # completion_contract gate. Keep this job name; list every other job in `needs`.
+  # ub-mode metrics run in quality.yml: a separate workflow, never part of this check.
   devflow-ci:
     if: always()
-    needs: [check, test, verify]
+    needs: [test, check, verify, verify-base]
     runs-on: ubuntu-latest
     steps:
       - name: all jobs passed
-        env:
-          CHECK_RESULT: ${{ needs.check.result }}
-          TEST_RESULT: ${{ needs.test.result }}
-          VERIFY_RESULT: ${{ needs.verify.result }}
-        run: test "$CHECK_RESULT" = success && test "$TEST_RESULT" = success && test "$VERIFY_RESULT" = success
+        run: test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false

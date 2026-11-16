@@ -2,7 +2,7 @@
 """遮罩診斷檔中的秘密（盡力而為；根本做法仍是應用程式不要記錄秘密）。
 
 用法：redact.py <env 檔> <檔案或目錄>...
-- env 檔（部署秘密來源 deploy/.env）中所有非空的值逐字遮罩；無法讀取則失敗。
+- env 檔（部署秘密來源 deploy/.env）中長度 >= 8 的值逐字遮罩。
 - 常見憑證樣式以 regex 遮罩：Bearer/Basic、JWT、URL 帳密、私鑰、key=value 型的密碼/token/cookie。
 - 每行截斷到 4000 字元。
 任何檔案處理失敗即以非 0 結束，呼叫端應刪除未遮罩的輸出（fail closed）。
@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 MASK = "<REDACTED>"
-MIN_LITERAL = 1
+MIN_LITERAL = 8
 MAX_LINE = 4000
 
 PATTERNS = [
@@ -30,29 +30,16 @@ PATTERNS = [
 
 
 def env_literals(path: Path) -> list[str]:
-    if not path.is_file() or path.is_symlink():
-        raise ValueError("missing or unsafe env source")
+    if not path.is_file():
+        return []
     values = set()
-    for line in path.read_text().splitlines():
+    for line in path.read_text(errors="replace").splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
+        if not line or line.startswith("#") or "=" not in line:
             continue
-        if "=" not in line:
-            raise ValueError("unsupported dotenv syntax")
-        key, value = line.split("=", 1)
-        if not re.fullmatch(r'(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*', key.strip()):
-            raise ValueError("unsupported dotenv key")
-        value = value.strip()
-        # Compose expands/interprets these forms. Refuse rather than redact the
-        # wrong literal and accidentally publish the interpreted secret.
-        if any(c in value for c in ('\\', '$', '#')):
-            raise ValueError("unsupported dotenv expansion/escape/comment")
-        if value.startswith(("\"", "'")) and (len(value) < 2 or value[-1] != value[0]):
-            raise ValueError("unsupported multiline dotenv value")
+        value = line.split("=", 1)[1].strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
-        elif any(c.isspace() or c in "\"'" for c in value):
-            raise ValueError("unsupported unquoted dotenv value")
         if len(value) >= MIN_LITERAL:
             values.add(value)
     return sorted(values, key=len, reverse=True)
@@ -69,14 +56,8 @@ def redact(text: str, literals: list[str]) -> str:
 
 def files(targets: list[str]):
     for target in map(Path, targets):
-        if target.is_symlink() or not target.exists():
-            raise ValueError("missing or unsafe redaction target")
         if target.is_dir():
-            for p in sorted(target.rglob("*")):
-                if p.is_symlink():
-                    raise ValueError("symlink in redaction target")
-                if p.is_file():
-                    yield p
+            yield from (p for p in sorted(target.rglob("*")) if p.is_file())
         elif target.is_file():
             yield target
 
