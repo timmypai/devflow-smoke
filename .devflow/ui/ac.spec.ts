@@ -1,4 +1,5 @@
 import { expect, type APIResponse, type Page } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import { scenario } from './ac';
 
 async function displayedCount(page: Page): Promise<number> {
@@ -40,11 +41,10 @@ for (const spec of [
         await expect(page).toHaveTitle('hello devflow');
         await expect(page.getByRole('heading', { level: 1, name: 'hello devflow' })).toBeVisible();
         initial = await displayedCount(page);
-        documentId = await page.evaluate(() => {
-          const id = crypto.randomUUID();
+        documentId = randomUUID();
+        await page.evaluate(id => {
           document.documentElement.dataset.devflowDocument = id;
-          return id;
-        });
+        }, documentId);
         navigations = [];
         updates = [];
         page.on('framenavigated', frame => {
