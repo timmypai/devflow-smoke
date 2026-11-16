@@ -1,0 +1,9 @@
+id = "L-0003"
+title = "Route HTTP requests by path without the query string"
+category = "code-pattern"
+event = "Kanban t_5150f7b5; Epic t_32d348de; query-string HTTP regression fix"
+root_cause = "BaseHTTPRequestHandler.path includes the query string. Comparing the full request target to route literals returned 404 for every known query route. Compare only the path, retain one count per GET, and verify raw response equivalence on independent servers with identical request history."
+
+[enforcement]
+kind = "test"
+ref = "tests/test_query_http.py::test_query_routes_preserve_http_content_and_get_counts"

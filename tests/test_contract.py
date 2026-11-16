@@ -21,6 +21,9 @@ class RuleTests(unittest.TestCase):
         shutil.copytree(ROOT / '.devflow/lessons', self.root / '.devflow/lessons')
         for name in ('check.py', 'check.sh', 'verify.sh'):
             shutil.copy(ROOT / '.devflow' / name, self.root / '.devflow' / name)
+        # The new test-backed lesson must resolve in this isolated contract fixture too.
+        (self.root / 'tests').mkdir()
+        shutil.copy(ROOT / 'tests/test_query_http.py', self.root / 'tests/test_query_http.py')
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
 
     def check(self, expected=0, contains=''):
