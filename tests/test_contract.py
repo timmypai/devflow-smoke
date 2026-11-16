@@ -19,7 +19,7 @@ class RuleTests(unittest.TestCase):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         shutil.copytree(ROOT / '.devflow/rules', self.root / '.devflow/rules')
         shutil.copytree(ROOT / '.devflow/lessons', self.root / '.devflow/lessons')
-        for name in ('check.py', 'check.sh'):
+        for name in ('check.py', 'check.sh', 'verify.sh'):
             shutil.copy(ROOT / '.devflow' / name, self.root / '.devflow' / name)
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
 
@@ -32,7 +32,8 @@ class RuleTests(unittest.TestCase):
         return p.stdout
 
     def test_current_rules_self_test_and_lesson_pass(self):
-        self.check(contains='3 rule(s), 1 lesson(s), 0 baselined, 0 new')
+        lessons = len(list((self.root / '.devflow/lessons').glob('*.toml')))
+        self.check(contains=f'3 rule(s), {lessons} lesson(s), 0 baselined, 0 new')
 
     def test_new_tracked_violations_fail_all_rules(self):
         # Construct source snippets to avoid confusing the scanner with its probes.
@@ -72,13 +73,15 @@ class RuleTests(unittest.TestCase):
         path.write_text(original)
         self.check()
 
-    def test_empty_rules_and_broad_exclusion_cannot_pass(self):
+    def test_broad_exclusion_and_missing_lesson_rule_cannot_pass(self):
         path = self.root / '.devflow/rules/no-sleep-fix.toml'
         path.write_text(path.read_text().replace('patterns = [', 'exclude = ["**"]\npatterns = ['))
         self.check(1, 'did not fire on')
         for path in (self.root / '.devflow/rules').glob('*.toml'):
             path.unlink()
-        self.check(2, 'at least one rule is required')
+        # The unmodified current template allows empty rule sets, but this
+        # project's existing rule-backed lesson must never become dangling.
+        self.check(1, 'names no rule')
 
 
 class ContractWorkflowTests(unittest.TestCase):

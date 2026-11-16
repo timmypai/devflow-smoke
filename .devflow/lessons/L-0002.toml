@@ -1,0 +1,9 @@
+id = "L-0002"
+title = "Select unittest modules without recursive discovery"
+category = "verification"
+event = "https://github.com/timmypai/devflow-smoke/pull/7 (Kanban t_d823c244)"
+root_cause = "discover(start_dir, pattern=filename) also collects same-named files in nested packages. The original fixture lacked __init__.py, so it never exercised that recursion. Load only the selected source module; verify a real nested package leaves no execution marker or JUnit case."
+
+[enforcement]
+kind = "journey"
+ref = ".devflow/verify.sh::LESSON-GATE-AC-1"
