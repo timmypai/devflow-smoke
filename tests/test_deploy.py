@@ -31,6 +31,8 @@ with open("docker.jsonl", "a") as log:
                           "image": os.environ["DEVFLOW_IMAGE"]}) + "\n")
 if args[0] == "compose":
     command = args[5]
+    if command == "build" and state.get("build_fail"):
+        raise SystemExit(23)
     if command == "up":
         rollback = os.environ["DEVFLOW_IMAGE"].endswith(":live")
         state["rollback"] = rollback
@@ -124,6 +126,16 @@ with open("verify.jsonl", "a") as log:
 raise SystemExit(1 if state.get("verify_fail") and not state.get("rollback") else 0)
 ''')
         verifier.chmod(0o755)
+        (self.workspace / '.devflow/capture.sh').write_text('exec python3 .devflow/capture-double.py "$@"\n')
+        capture = self.workspace / '.devflow/capture-double.py'
+        capture.write_text('''#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+state = json.loads(Path('state.json').read_text())
+with open('capture.jsonl', 'a') as log:
+    log.write(json.dumps({'project': sys.argv[1], 'label': sys.argv[2], 'rollback': state.get('rollback', False)}) + '\\n')
+raise SystemExit(42 if state.get('capture_fail') else 0)
+''')
         config = (ROOT / ".devflow/config.env").read_text().replace("DEVFLOW_PORT=18100", f"DEVFLOW_PORT={server.server_port}")
         (self.workspace / ".devflow/config.env").write_text(config)
         docker = self.workspace / "bin/docker"
@@ -256,6 +268,24 @@ raise SystemExit(1 if state.get("verify_fail") and not state.get("rollback") els
         result, calls = self.deploy()
         self.assertEqual(result.returncode, 1)
         self.assertFalse(any(call["args"][0] == "compose" and call["image"].endswith(":live") for call in calls))
+
+    def test_capture_failure_does_not_mask_candidate_or_rollback(self):
+        self.state.update(verify_fail=True, capture_fail=True)
+        result, calls = self.deploy()
+        self.assert_rollback(result, calls)
+        self.assertIn('rollback healthy', result.stderr)
+        captures = [json.loads(line) for line in (self.workspace / 'capture.jsonl').read_text().splitlines()]
+        self.assertEqual([c['label'] for c in captures], ['candidate', 'rollback'])
+        self.assertEqual([c['rollback'] for c in captures], [False, True])
+        self.assertTrue(all(c['project'] == 'devflow-devflow-smoke' for c in captures))
+
+    def test_build_failure_captures_without_changing_running_version(self):
+        self.state.update(build_fail=True, capture_fail=True)
+        result, calls = self.deploy()
+        self.assertEqual(result.returncode, 23, result.stdout + result.stderr)
+        self.assertFalse(any('up' in c['args'] or c['args'][0] == 'tag' for c in calls))
+        capture = json.loads((self.workspace / 'capture.jsonl').read_text())
+        self.assertEqual(capture['label'], 'build-failed')
 
     def test_invalid_or_mismatched_source_fails_before_docker(self):
         for sha in ("short", "c" * 40):

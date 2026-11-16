@@ -13,6 +13,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: exact-head rules, lessons and negative probes
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          GITHUB_SHA="$SOURCE_SHA" .devflow/prepare-evidence.sh
+          bash .devflow/check.sh
+          GITHUB_SHA="$SOURCE_SHA" python3 .devflow/contract-evidence.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: devflow-contract-pr-${{ env.SOURCE_SHA }}
+          path: .devflow/evidence/
+          if-no-files-found: error
+          retention-days: 14
+
   test:
     strategy:
       fail-fast: false
@@ -69,14 +94,17 @@ jobs:
         run: GITHUB_SHA="$SOURCE_SHA" .devflow/prepare-evidence.sh
       - name: ephemeral compose service
         run: GITHUB_SHA="$SOURCE_SHA" .devflow/up.sh
+      - name: real Docker synthetic failure and redaction probe
+        if: matrix.label != 'oracle'
+        run: GITHUB_SHA="$SOURCE_SHA" python3 .devflow/probe-diagnostics.py
       - name: HTTP and real browser journeys
         run: GITHUB_SHA="$SOURCE_SHA" .devflow/verify.sh
+      - name: diagnostics (actual temporary project, before cleanup)
+        if: always() && env.DEVFLOW_VERIFY_PROJECT != ''
+        run: GITHUB_SHA="$SOURCE_SHA" bash .devflow/capture.sh "$DEVFLOW_VERIFY_PROJECT" ci
       - name: cleanup ephemeral project
         if: always() && env.DEVFLOW_VERIFY_PROJECT != ''
-        run: |
-          set -a; . .devflow/config.env; set +a
-          export DEVFLOW_PORT=0
-          GITHUB_SHA="$SOURCE_SHA" docker compose -p "$DEVFLOW_VERIFY_PROJECT" -f deploy/compose.yml down --volumes --remove-orphans
+        run: GITHUB_SHA="$SOURCE_SHA" bash .devflow/cleanup.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -85,14 +113,23 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: devflow-diagnostics-pr-${{ env.SOURCE_SHA }}-${{ matrix.label }}
+          path: .devflow/diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
+
   # Exact success only: skipped/cancelled/unknown are not a pass.
   devflow-ci:
     if: always()
-    needs: [test, verify]
+    needs: [check, test, verify]
     runs-on: ubuntu-latest
     steps:
       - name: all jobs passed
         env:
+          CHECK_RESULT: ${{ needs.check.result }}
           TEST_RESULT: ${{ needs.test.result }}
           VERIFY_RESULT: ${{ needs.verify.result }}
-        run: test "$TEST_RESULT" = success && test "$VERIFY_RESULT" = success
+        run: test "$CHECK_RESULT" = success && test "$TEST_RESULT" = success && test "$VERIFY_RESULT" = success

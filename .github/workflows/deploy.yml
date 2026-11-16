@@ -21,6 +21,8 @@ jobs:
           ref: ${{ github.sha }}
       - name: isolate evidence
         run: .devflow/prepare-evidence.sh
+      - name: contract evidence (separate from application AC-1/AC-2)
+        run: python3 .devflow/contract-evidence.py
       - name: deploy, host smoke, provenance and browser journeys
         shell: bash  # Explicit bash enables -o pipefail; tee must not hide rollback/failure.
         run: .devflow/deploy.sh 2>&1 | tee .devflow/evidence/deploy.log
@@ -31,3 +33,10 @@ jobs:
           path: .devflow/evidence/
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: devflow-diagnostics-deploy-${{ github.sha }}
+          path: .devflow/diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7

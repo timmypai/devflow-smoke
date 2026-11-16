@@ -3,3 +3,9 @@ deploy/.env
 __pycache__/
 .devflow/evidence/
 .devflow/ui/node_modules/
+
+.devflow/diagnostics/
+.devflow/.capture-*/
+.metrics/
+target/coverage/
+target/mutation-workers/

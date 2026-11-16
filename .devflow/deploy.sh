@@ -54,9 +54,18 @@ verify_deployment() {
   [[ "$running" == true && "$revision" == "$expected_revision" && "$actual_stats" == "$stats_endpoint" && "$actual_version" == "$version_endpoint" ]]
 }
 
+capture() {
+  DEVFLOW_BASE_URL="http://127.0.0.1:${DEVFLOW_PORT}" \
+    bash .devflow/capture.sh "devflow-${DEVFLOW_APP}" "$1" || true
+}
 echo "::group::build ${DEVFLOW_IMAGE}"
-"${COMPOSE[@]}" build --pull
-echo "::endgroup::"
+if "${COMPOSE[@]}" build --pull; then
+  echo "::endgroup::"
+else
+  rc=$?
+  capture build-failed
+  exit "$rc"  # Running version is untouched; diagnostics cannot mask build failure.
+fi
 
 # Workflow clears the evidence root once; attempts isolate candidate and rollback.
 export DEVFLOW_EVIDENCE="${DEVFLOW_EVIDENCE:-$PWD/.devflow/evidence}"
@@ -76,7 +85,7 @@ if "${COMPOSE[@]}" up -d --remove-orphans && verify_deployment "$SHA" && run_jou
 fi
 
 echo "::error::devflow: ${DEVFLOW_APP} ${SHA:0:12} failed deployment verification" >&2
-"${COMPOSE[@]}" logs --tail 80 >&2 || true
+capture candidate  # Capture BEFORE rollback; never print unredacted container logs.
 if docker image inspect "${REPO_IMAGE}:live" >/dev/null 2>&1; then
   rollback_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${REPO_IMAGE}:live")
   [[ "$rollback_revision" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid rollback OCI revision" >&2; exit 1; }
@@ -99,5 +108,6 @@ if docker image inspect "${REPO_IMAGE}:live" >/dev/null 2>&1; then
   else
     echo "::error::devflow: rollback also unhealthy" >&2
   fi
+  capture rollback
 fi
 exit 1
