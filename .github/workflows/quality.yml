@@ -32,6 +32,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: pinned coverage runtime
+        run: python3 -m pip install --disable-pip-version-check coverage==7.17.3
       - name: unclebob tools
         run: |
           for t in crapper:c757ec79a6c15dc815238bbd9c2f4601eb54d3cc \

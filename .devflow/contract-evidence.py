@@ -32,7 +32,8 @@ def main():
     )
     files = ['.github/workflows/ci.yml', '.github/workflows/quality.yml', '.github/workflows/repro.yml',
              '.devflow/capture.sh', '.devflow/redact.py', '.devflow/check.py', '.devflow/check.sh',
-             '.devflow/lessons/L-0001.toml', '.devflow/quality.sh', 'tests/test_contract.py']
+             '.devflow/lessons/L-0001.toml', '.devflow/quality.sh', '.devflow/coverage.sh',
+             '.devflow/probe-diagnostics.py', '.devflow/cleanup.sh', 'tests/test_contract.py']
     files += [str(p) for p in sorted(Path('.devflow/rules').glob('*.toml'))]
     digests = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in files}
     result = subprocess.run(['bash', '.devflow/check.sh'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

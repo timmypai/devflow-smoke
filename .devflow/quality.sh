@@ -31,8 +31,8 @@ mapfile -t changed < <(git diff --name-only --diff-filter=AM "$BASE"...HEAD \
 if ((${#changed[@]})); then
   test_cmd=()
   [[ -f .devflow/test.sh ]] && test_cmd=(--test-command "bash .devflow/test.sh")
-  "$TOOLS/mutator/mutator" "${cov[@]}" "${test_cmd[@]}" "${changed[@]}" >"$OUT/mutate.txt" 2>&1
-  echo "exit $? (0 all killed, 2 baseline tests failed, 3 survivors)" >>"$OUT/mutate.txt"
+  timeout 180 "$TOOLS/mutator/mutator" "${cov[@]}" "${test_cmd[@]}" "${changed[@]}" >"$OUT/mutate.txt" 2>&1
+  echo "exit $? (0 all killed, 2 baseline tests failed, 3 survivors, 124 diagnostic budget reached; partial results only)" >>"$OUT/mutate.txt"
 else
   echo "no changed source files" >"$OUT/mutate.txt"
 fi

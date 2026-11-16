@@ -123,6 +123,9 @@ AC-2 驗 rules／lesson／新增違規及失效 ref 負例；AC-3 驗必需檔�
 `quality.yml` 是獨立、非 required 的品質訊號，僅在 GitHub-hosted/read-only token 執行
 釘選 commit 的 crapper／dryer／mutator，結果放 `devflow-quality-<exact-head-sha>`（`.metrics`）。
 不在 Hermes 或 production 執行第三方工具；工具失敗不影響 `devflow-ci`。
+coverage==7.17.3 與 coverage.sh 明確使用 `unittest discover -s tests`，拒絕零測試，
+避免工具預設 `-s .` 找不到本 repo tests。mutation 限 180 秒，逾時保留 partial results 並標 exit 124，
+不將品質 workflow 綠燈誤稱為所有 mutants 已殺死。
 
 ```sh
 # repro.yml 必須先存在 main 才能 dispatch：
