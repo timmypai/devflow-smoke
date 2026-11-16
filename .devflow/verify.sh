@@ -56,6 +56,10 @@ else
   journey legacy-browser 'Old plain-text homepage in Chromium' browser_journey
 fi
 python3 .devflow/check-evidence.py "$DEVFLOW_EVIDENCE"
+if [[ "$DEVFLOW_VERIFY_PHASE" == candidate ]]; then
+  journey LESSON-GATE-AC-1 'P2 contract and real unittest selector/JUnit fixtures (Epic t_32d348de)' \
+    python3 .devflow/lesson-gate-evidence.py
+fi
 if [[ "$contract" == stats ]]; then
   printf 'AC-1 PASS\nAC-2 PASS\n' | tee "$DEVFLOW_EVIDENCE/result.txt"
   if [[ "$DEVFLOW_VERIFY_PHASE" == candidate ]]; then

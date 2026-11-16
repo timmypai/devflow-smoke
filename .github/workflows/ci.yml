@@ -1,6 +1,7 @@
 name: ci
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches-ignore: [main]
   workflow_dispatch:
@@ -21,6 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
@@ -30,6 +32,14 @@ jobs:
           GITHUB_SHA="$SOURCE_SHA" .devflow/prepare-evidence.sh
           bash .devflow/check.sh
           GITHUB_SHA="$SOURCE_SHA" python3 .devflow/contract-evidence.py
+          GITHUB_SHA="$SOURCE_SHA" python3 .devflow/lesson-gate-evidence.py
+      - name: P2 PR lesson gate
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 .devflow/check.py --pr "$PR_BASE_SHA"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -50,6 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
@@ -86,6 +97,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         if: matrix.label != 'oracle'
         with:

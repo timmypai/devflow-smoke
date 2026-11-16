@@ -72,13 +72,15 @@ class RuleTests(unittest.TestCase):
         path.write_text(original)
         self.check()
 
-    def test_empty_rules_and_broad_exclusion_cannot_pass(self):
+    def test_broad_exclusion_and_missing_lesson_rule_cannot_pass(self):
         path = self.root / '.devflow/rules/no-sleep-fix.toml'
         path.write_text(path.read_text().replace('patterns = [', 'exclude = ["**"]\npatterns = ['))
         self.check(1, 'did not fire on')
         for path in (self.root / '.devflow/rules').glob('*.toml'):
             path.unlink()
-        self.check(2, 'at least one rule is required')
+        # The unmodified current template allows empty rule sets, but this
+        # project's existing rule-backed lesson must never become dangling.
+        self.check(1, 'names no rule')
 
 
 class ContractWorkflowTests(unittest.TestCase):
