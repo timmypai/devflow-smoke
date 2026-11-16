@@ -25,7 +25,7 @@ def main():
         'phase': os.environ.get('DEVFLOW_VERIFY_PHASE'),
         'base_url': os.environ['DEVFLOW_BASE_URL'], 'observations': observations,
         'content_equivalence': 'Raw bytes and Content-Type compared on isolated real servers by tests/test_query_http.py',
-        'counter_semantics': 'Each GET counts, including errors; live snapshots strictly increase (other clients may interleave).',
+        'counter_semantics': 'Only successful (200) GETs count; live snapshots strictly increase (other clients may interleave).',
         'result': 'FAIL'}
 
     def get(path, status=200, content_type=None):

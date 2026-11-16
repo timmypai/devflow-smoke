@@ -39,9 +39,9 @@ class QueryHTTPTests(unittest.TestCase):
                 self.assertEqual(actual[0], 200)
                 self.assertEqual(actual, expected)  # Raw bytes, including dynamic counts.
                 if path == "/stats":
-                    self.assertEqual(json.loads(actual[2]), {"requests": 4})
+                    self.assertEqual(json.loads(actual[2]), {"requests": 3})
                 if path == "/":
-                    self.assertIn(b'<output id="requests">4</output>', actual[2])
+                    self.assertIn(b'<output id="requests">3</output>', actual[2])
                 for server in (plain, query):
                     self.assertEqual(self.request(server, "/nope?x=1")[0], 404)
-                    self.assertEqual(json.loads(self.request(server, "/stats")[2]), {"requests": 6})
+                    self.assertEqual(json.loads(self.request(server, "/stats")[2]), {"requests": 4})
