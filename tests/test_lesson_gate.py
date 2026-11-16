@@ -76,6 +76,17 @@ class UnittestContractTests(unittest.TestCase):
         outcomes, err = load_gate().run_test_file(self.root, selected, 'test_target')
         self.assertEqual((outcomes, err), (['passed'], ''))
 
+    def test_selector_excludes_same_named_tests_in_nested_package(self):
+        selected = self.fixture('test_selected.py', '    def test_target(self):\n        Path("selected").touch()\n')
+        self.fixture('nested/test_selected.py', '    def test_nested(self):\n        Path("nested-ran").touch()\n')
+        (self.root / 'tests/nested/__init__.py').touch()
+        proc, cases = self.run_fixture('nested-package', selected)
+        self.assertFalse((self.root / 'nested-ran').exists())
+        self.assertTrue((self.root / 'selected').exists())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([c.get('name') for c in cases], ['test_target'])
+        self.assertEqual([c.get('file') for c in cases], [selected])
+
     def test_success_assertion_error_and_skip_have_distinct_xml_and_exit_codes(self):
         fixtures = (
             ('success', '        self.assertEqual(2, 2)\n', None, 0),

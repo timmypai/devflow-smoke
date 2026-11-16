@@ -19,7 +19,7 @@ class RuleTests(unittest.TestCase):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         shutil.copytree(ROOT / '.devflow/rules', self.root / '.devflow/rules')
         shutil.copytree(ROOT / '.devflow/lessons', self.root / '.devflow/lessons')
-        for name in ('check.py', 'check.sh'):
+        for name in ('check.py', 'check.sh', 'verify.sh'):
             shutil.copy(ROOT / '.devflow' / name, self.root / '.devflow' / name)
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
 
@@ -32,7 +32,8 @@ class RuleTests(unittest.TestCase):
         return p.stdout
 
     def test_current_rules_self_test_and_lesson_pass(self):
-        self.check(contains='3 rule(s), 1 lesson(s), 0 baselined, 0 new')
+        lessons = len(list((self.root / '.devflow/lessons').glob('*.toml')))
+        self.check(contains=f'3 rule(s), {lessons} lesson(s), 0 baselined, 0 new')
 
     def test_new_tracked_violations_fail_all_rules(self):
         # Construct source snippets to avoid confusing the scanner with its probes.

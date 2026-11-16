@@ -4,6 +4,7 @@
 JUnit names are method names (not unittest's full dotted id) so check.py can
 resolve path::test_method_name. A report never replaces unittest's exit status.
 """
+import importlib.util
 import inspect
 import os
 from pathlib import Path
@@ -87,6 +88,21 @@ class JUnitResult(unittest.TextTestResult):
         ET.ElementTree(suite).write(path, encoding='utf-8', xml_declaration=True)
 
 
+def load_selected_tests(loader, target):
+    sys.path.insert(0, str(target.parent.resolve()))
+    spec = importlib.util.spec_from_file_location(target.stem, target)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as error:
+        # Keep collection failures in the normal error/JUnit reporting path.
+        def import_failure(error=error):
+            raise error
+        return unittest.TestSuite([unittest.FunctionTestCase(import_failure)])
+    return loader.loadTestsFromModule(module)
+
+
 def main():
     os.chdir(ROOT)
     sys.path.insert(0, str(ROOT))
@@ -99,7 +115,7 @@ def main():
                 or not target.resolve().is_relative_to(ROOT / 'tests')):
             print('DEVFLOW_TEST_ONLY must name one existing Python file under tests/', file=sys.stderr)
             return 2
-        suite = loader.discover(str(target.parent), pattern=target.name)
+        suite = load_selected_tests(loader, target)
     else:
         suite = loader.discover('tests')
     if suite.countTestCases() == 0:
