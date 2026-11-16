@@ -6,4 +6,4 @@ root_cause = "The UI Given called browser crypto.randomUUID(), which is availabl
 
 [enforcement]
 kind = "journey"
-ref = ".devflow/ui/ac.spec.ts::t_e07b5ec1/AC-1.S1"
+ref = ".devflow/ui/ac.spec.ts::t_68ba7728/AC-1.S1"

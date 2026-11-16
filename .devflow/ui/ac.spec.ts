@@ -10,7 +10,7 @@ async function displayedCount(page: Page): Promise<number> {
 
 for (const spec of [
   {
-    "id": "t_e07b5ec1/AC-1.S1",
+    "id": "t_68ba7728/AC-1.S1",
     "description": "單次更新且不重新載入頁面",
     "given": "首頁已開啟，標題為「hello devflow」，「目前請求數」顯示非負整數，已記錄數字與目前文件身分",
     "when": "按一次「更新」按鈕",
@@ -18,7 +18,7 @@ for (const spec of [
     "clicks": 1
   },
   {
-    "id": "t_e07b5ec1/AC-1.S2",
+    "id": "t_68ba7728/AC-1.S2",
     "description": "重複更新仍有效",
     "given": "首頁已開啟，「目前請求數」顯示非負整數，已記錄數字與目前文件身分",
     "when": "依序按兩次「更新」按鈕，每次等候計數更新後再繼續",
@@ -85,7 +85,7 @@ for (const spec of [
 
 for (const spec of [
   {
-    "id": "t_e07b5ec1/AC-2.S1",
+    "id": "t_68ba7728/AC-2.S1",
     "description": "純文字計數",
     "given": "服務已啟動，GET / 回應 200",
     "when": "呼叫 GET /stats?format=text",
@@ -94,7 +94,7 @@ for (const spec of [
     "contract": "text"
   },
   {
-    "id": "t_e07b5ec1/AC-2.S2",
+    "id": "t_68ba7728/AC-2.S2",
     "description": "額外查詢參數不影響純文字格式",
     "given": "服務已啟動，GET / 回應 200",
     "when": "呼叫 GET /stats?probe=1&format=text",
@@ -103,7 +103,7 @@ for (const spec of [
     "contract": "text"
   },
   {
-    "id": "t_e07b5ec1/AC-2.S3",
+    "id": "t_68ba7728/AC-2.S3",
     "description": "預設 JSON 契約保持不變",
     "given": "服務已啟動，GET / 回應 200",
     "when": "呼叫 GET /stats",
@@ -112,7 +112,7 @@ for (const spec of [
     "contract": "json"
   },
   {
-    "id": "t_e07b5ec1/AC-2.S4",
+    "id": "t_68ba7728/AC-2.S4",
     "description": "健康檢查契約保持不變",
     "given": "服務已啟動，GET / 回應 200",
     "when": "呼叫 GET /health",
@@ -121,7 +121,7 @@ for (const spec of [
     "contract": "health"
   },
   {
-    "id": "t_e07b5ec1/AC-2.S5",
+    "id": "t_68ba7728/AC-2.S5",
     "description": "版本端點契約保持不變",
     "given": "服務已啟動，GET /version 回應 200 且 JSON 只有 revision 字串單鍵，已記錄該字串",
     "when": "呼叫 GET /version",
