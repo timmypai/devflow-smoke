@@ -4,6 +4,7 @@ import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 
 class Server(ThreadingHTTPServer):
@@ -20,7 +21,7 @@ class Server(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        path = self.path.partition("?")[0]
+        path, _, query = self.path.partition("?")
         if path not in ("/health", "/version", "/", "/stats"):
             self.send_error(404)
             return
@@ -37,9 +38,32 @@ class Handler(BaseHTTPRequestHandler):
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>hello devflow</title></head>
 <body><main><h1>hello devflow</h1>
-<p><label for="requests">目前請求數</label>：<output id="requests">{requests}</output></p>
-<p>此數字為本次請求的快照，重新整理頁面即可更新。</p>
+<p aria-live="polite"><label for="requests">目前請求數</label>：<output id="requests">{requests}</output></p>
+<button type="button" id="refresh">更新</button>
+<p>按「更新」取得最新計數，不會重新載入頁面。</p>
+<p id="message" role="status"></p>
+<script>
+const refresh = document.getElementById('refresh');
+const message = document.getElementById('message');
+refresh.addEventListener('click', async () => {{
+  refresh.disabled = true;
+  message.textContent = '';
+  try {{
+    const response = await fetch('/stats', {{ cache: 'no-store' }});
+    if (!response.ok) throw new Error('更新失敗');
+    const stats = await response.json();
+    document.getElementById('requests').textContent = stats.requests;
+  }} catch {{
+    message.textContent = '更新失敗，請再試一次。';
+  }} finally {{
+    refresh.disabled = false;
+  }}
+}});
+</script>
 </main></body></html>'''.encode("utf-8")
+        elif parse_qs(query).get("format") == ["text"]:  # /stats?format=text
+            content_type = "text/plain; charset=utf-8"
+            body = f"requests: {requests}".encode("utf-8")
         else:  # /stats
             content_type = "application/json"
             body = json.dumps({"requests": requests}).encode("utf-8")
