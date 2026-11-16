@@ -1,0 +1,9 @@
+id = "L-0006"
+title = "Hand container-written evidence back to the mount owner"
+category = "kit"
+event = "Deploy run https://github.com/timmypai/devflow-smoke/actions/runs/43879852494 (6cecab3) failed verify and rolled back"
+root_cause = "playwright.sh chowned /evidence to the host $(id -u). The Oracle runner uses rootless Docker, where container root already maps to the host user, so container uid 1008 mapped to a subuid and the runner could no longer write .devflow/evidence (acceptance.py PermissionError). GitHub-hosted CI uses rootful Docker, so PR CI stayed green. Chown to the owner of the mount point as seen inside the container, which maps back to the host user in both modes."
+
+[enforcement]
+kind = "template"
+ref = ".devflow/playwright.sh::owner=$(stat -c %u:%g /evidence)"
