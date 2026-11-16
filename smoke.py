@@ -27,7 +27,7 @@ def check(base_url, timeout=30, expected_revision=None, legacy_home=False):
             except (OSError, http.client.HTTPException):
                 if time.monotonic() >= deadline:
                     raise
-                time.sleep(0.2)
+                time.sleep(0.2)  # devflow: allow no-sleep-fix L-0001
             finally:
                 connection.close()
         print(f"GET {path}: status={status} content-type={content_type!r} body={body!r}", flush=True)

@@ -145,18 +145,18 @@ class WorkflowTests(unittest.TestCase):
                 text=True)
             self.assertRegex(project, r'^[a-z0-9][a-z0-9_-]+$')
 
-    def test_aggregator_accepts_only_both_success(self):
+    def test_aggregator_accepts_only_all_success(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         gate = workflow.split('  devflow-ci:', 1)[1]
-        self.assertIn('needs: [test, verify]', gate)
+        self.assertIn('needs: [check, test, verify]', gate)
         self.assertIn('if: always()', gate)
         command = next(line.split('run: ', 1)[1] for line in gate.splitlines() if 'run: ' in line)
         states = ('success', 'failure', 'cancelled', 'skipped', '')
-        for test, verify in itertools.product(states, repeat=2):
-            with self.subTest(test=test, verify=verify):
+        for check, test, verify in itertools.product(states, repeat=3):
+            with self.subTest(check=check, test=test, verify=verify):
                 result = subprocess.run(['bash', '-c', command], env={
-                    **os.environ, 'TEST_RESULT': test, 'VERIFY_RESULT': verify})
-                self.assertEqual(result.returncode == 0, test == verify == 'success')
+                    **os.environ, 'CHECK_RESULT': check, 'TEST_RESULT': test, 'VERIFY_RESULT': verify})
+                self.assertEqual(result.returncode == 0, check == test == verify == 'success')
 
     def test_both_workflows_preserve_evidence_on_failure(self):
         for filename in ('ci.yml', 'deploy.yml'):

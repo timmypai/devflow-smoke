@@ -1,0 +1,9 @@
+id = "L-0001"
+title = "Keep deadline-bounded connection retry backoff"
+category = "verification"
+event = "Contract adoption flags the existing smoke connection retry delay."
+root_cause = "The rule cannot distinguish blind readiness sleeps from backoff after a failed HTTP connection. smoke.py retries only connection errors until a monotonic deadline; response contract failures are never retried."
+
+[enforcement]
+kind = "rule"
+ref = "no-sleep-fix"

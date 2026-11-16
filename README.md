@@ -92,7 +92,7 @@ export GITHUB_SHA=$(git rev-parse HEAD)
 rootless Docker 不使用 host-loopback 作為瀏覽器 URL，且容器 UID 0 對應 runner owner。
 
 CI 保留原本 x64／ARM64 test matrix，另有兩架構真實 compose + browser verify matrix。
-`devflow-ci` 只接受 test、verify 均為 success（skipped 也失敗）。
+`devflow-ci` 只接受 check、test、verify 均為 success（skipped／cancelled 也失敗）。
 經授權執行 `gh workflow run ci.yml --ref <trusted-branch>` 時，另加 Oracle ARM64 verify，
 仍只使用臨時 project／動態埠，不改 production project、18100 或 `:live`。
 
@@ -105,3 +105,48 @@ CI／部署都以 `always()` 上傳 `devflow-evidence-pr-<sha>-<arch>`／
 `devflow-evidence-deploy-<sha>` artifacts，缺目錄即失敗。服務 project 與瀏覽器容器會清理。
 本機 unittest 的 Docker／verify double **只證明控制流程**；實容器、Chromium 與 ARM64
 可執行性應以 exact-head Actions logs 和 artifacts 為準。
+
+## 契約規則、品質與安全採證
+
+`bash .devflow/check.sh` 自測三條非空規則、驗證教訓格式／enforcement ref，再掃描 git tracked
+檔案。不使用 baseline，也不排除 tests／UI。`smoke.py` 唯一單行豁免引用 `L-0001`：
+連線失敗才做 0.2 秒 backoff，持續重試明確 HTTP 條件且有 monotonic deadline；不是盲目等待 readiness，
+回應契約錯誤不會重試。保留原有邏輯，不改用等價 API 規避掃描。
+
+`.devflow/contract-evidence.py` 在 PR check job、main 部署前與 repro 執行；`contracts/mapping.json`
+記錄本 Epic `t_97e7e941` 的 AC 對應，`CONTRACT-AC-1..3.json/.log` 帶來源 SHA、檔案 SHA256、
+命令與 exit code。AC-1 驗 check exact-head/strict needs（真實 CI conclusion 另外核對）；
+AC-2 驗 rules／lesson／新增違規及失效 ref 負例；AC-3 驗必需檔案與 synthetic redaction／fail-closed。
+既有 stats **AC-1**／首頁 **AC-2** 名稱與 `attempt-*` 的 candidate／rollback validator 不變，
+它們不是這次 Epic 的契約驗收；main checkout、部署健康與正式 repro dispatch 由 SHIP 實測。
+
+`quality.yml` 是獨立、非 required 的品質訊號，僅在 GitHub-hosted/read-only token 執行
+釘選 commit 的 crapper／dryer／mutator，結果放 `devflow-quality-<exact-head-sha>`（`.metrics`）。
+不在 Hermes 或 production 執行第三方工具；工具失敗不影響 `devflow-ci`。
+coverage==7.17.3 與 coverage.sh 明確使用 `unittest discover -s tests`，拒絕零測試，
+避免工具預設 `-s .` 找不到本 repo tests。mutation 限 180 秒，逾時保留 partial results 並標 exit 124，
+不將品質 workflow 綠燈誤稱為所有 mutants 已殺死。
+
+```sh
+# repro.yml 必須先存在 main 才能 dispatch：
+gh workflow run repro.yml --ref <trusted-branch>
+```
+
+repro 跑完整 HTTP + Chromium journeys，**不支援 AC selector 或 trace input**。
+先 prepare-evidence，再 up.sh 將實際 `devflow-verify-<run>-<attempt>-<arch>`、動態 loopback URL
+寫入 GITHUB_ENV。always 先採集該 project，再用 cleanup.sh 核對本次 run 身分後 down；
+always 上傳 `devflow-repro-<run>-<attempt>`。不讀 production secrets、不使用 18100／`:live`。
+
+capture 是唯讀且 best-effort，僅取指定 compose label 的容器、State／exit／OOM／restart、
+限時限量 logs、loopback health 與 host 資源，不輸出 Config.Env。原始檔先放 artifact 外的
+私有 staging；所有欄位遮罩成功才發布，否則丟棄**全部** payload（含 State／health／errors），
+僅留固定錯誤訊息。deploy/.env 所有非空 literal（含短值）及常見 credential 樣式會遮罩；
+不支援／無法讀取的 dotenv 語法會 fail closed，可能犧牲診斷，但不發布原文。
+相同 label 可重跑，拒絕 traversal／symlink output，不清除專案外資料。
+CI/repro 在清理前採證；部署 build 失敗不換服務，候選失敗在 rollback **前**採證，
+rollback 後另採證。capture 故障不覆蓋原失敗／rollback 結果，不再直接印未遮罩容器 logs。
+CI 與 deploy 另以 always 上傳 `devflow-diagnostics-pr-<sha>-<arch>`／
+`devflow-diagnostics-deploy-<sha>`（7 天）；成功部署沒有 diagnostics 是正常的。
+GitHub-hosted verify/repro 另以同一臨時 project 的合成容器實測 exit 7、State、遮罩 logs 與
+動態 health URL，結果為 `diagnostics-probe.json`；只使用 synthetic secrets，要求空 .env，
+清理精確 probe container 並還原空 .env，不在 Oracle／Hermes 執行此 probe。

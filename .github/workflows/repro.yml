@@ -1,0 +1,51 @@
+name: repro
+# Default branch registration is required before dispatch. Full HTTP + browser suite;
+# no selector/trace inputs: verify.sh does not implement them. No production secrets.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repro-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: isolate evidence
+        run: GITHUB_SHA="$SOURCE_SHA" .devflow/prepare-evidence.sh
+      - name: contract evidence
+        run: GITHUB_SHA="$SOURCE_SHA" python3 .devflow/contract-evidence.py
+      - name: ephemeral compose service
+        run: GITHUB_SHA="$SOURCE_SHA" .devflow/up.sh
+      - name: real Docker synthetic failure and redaction probe
+        run: GITHUB_SHA="$SOURCE_SHA" python3 .devflow/probe-diagnostics.py
+      - name: HTTP and real browser journeys
+        run: GITHUB_SHA="$SOURCE_SHA" .devflow/verify.sh
+      - name: diagnostics (actual temporary project, before cleanup)
+        if: always() && env.DEVFLOW_VERIFY_PROJECT != ''
+        run: bash .devflow/capture.sh "$DEVFLOW_VERIFY_PROJECT" repro
+      - name: cleanup ephemeral project
+        if: always() && env.DEVFLOW_VERIFY_PROJECT != ''
+        run: GITHUB_SHA="$SOURCE_SHA" bash .devflow/cleanup.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: devflow-repro-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .devflow/evidence/
+            .devflow/diagnostics/
+          if-no-files-found: error
+          retention-days: 7
