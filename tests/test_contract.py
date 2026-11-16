@@ -24,6 +24,7 @@ class RuleTests(unittest.TestCase):
         # The new test-backed lesson must resolve in this isolated contract fixture too.
         (self.root / 'tests').mkdir()
         shutil.copy(ROOT / 'tests/test_query_http.py', self.root / 'tests/test_query_http.py')
+        shutil.copy(ROOT / 'tests/test_404_count_http.py', self.root / 'tests/test_404_count_http.py')
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
 
     def check(self, expected=0, contains=''):

@@ -102,6 +102,7 @@ class QueryEvidenceTests(unittest.TestCase):
         (tree / 'app.py').write_text(pre_fix)
         (tree / 'tests').mkdir()
         (tree / 'tests/__init__.py').write_text('')
+        shutil.copyfile(ROOT / 'tests/test_404_count_http.py', tree / 'tests/test_404_count_http.py')
         env = {**os.environ, 'GIT_AUTHOR_NAME': 'test', 'GIT_AUTHOR_EMAIL': 'test@example.invalid',
                'GIT_COMMITTER_NAME': 'test', 'GIT_COMMITTER_EMAIL': 'test@example.invalid'}
 

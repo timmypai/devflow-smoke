@@ -6,4 +6,4 @@ root_cause = "Counting before routing included unknown-path 404 responses in sta
 
 [enforcement]
 kind = "test"
-ref = "tests/test_query_http.py::test_query_routes_preserve_http_content_and_get_counts"
+ref = "tests/test_404_count_http.py::test_404_requests_do_not_increment_stats"

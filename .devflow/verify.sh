@@ -59,6 +59,8 @@ python3 .devflow/check-evidence.py "$DEVFLOW_EVIDENCE"
 if [[ "$DEVFLOW_VERIFY_PHASE" == candidate ]]; then
   journey NO-PROOF-AC-1 '404 excluded from exact successful HTTP/home snapshots (Epic t_b0023bda; AC-1/AC-4)' \
     python3 .devflow/success-count-evidence.py
+  journey NO-PROOF-AC-3 'Same isolated HTTP test: original base assertion FAIL, source head PASS (Epic t_b0023bda)' \
+    python3 .devflow/no-proof-evidence.py
   journey LESSON-GATE-AC-1 'P2 contract and real unittest selector/JUnit fixtures (Epic t_32d348de)' \
     python3 .devflow/lesson-gate-evidence.py
   journey LESSON-GATE-AC-2 'Known query routes, unknown 404 and live counter snapshots (Epic t_32d348de)' \
