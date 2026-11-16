@@ -59,6 +59,10 @@ python3 .devflow/check-evidence.py "$DEVFLOW_EVIDENCE"
 if [[ "$DEVFLOW_VERIFY_PHASE" == candidate ]]; then
   journey LESSON-GATE-AC-1 'P2 contract and real unittest selector/JUnit fixtures (Epic t_32d348de)' \
     python3 .devflow/lesson-gate-evidence.py
+  journey LESSON-GATE-AC-2 'Known query routes, unknown 404 and live counter snapshots (Epic t_32d348de)' \
+    python3 .devflow/query-http-evidence.py LESSON-GATE-AC-2
+  journey LESSON-GATE-AC-4 'Same query journey and expected deployed revision (Epic t_32d348de)' \
+    python3 .devflow/query-http-evidence.py LESSON-GATE-AC-4
 fi
 if [[ "$contract" == stats ]]; then
   printf 'AC-1 PASS\nAC-2 PASS\n' | tee "$DEVFLOW_EVIDENCE/result.txt"

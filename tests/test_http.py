@@ -90,9 +90,12 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(json.loads(self.request("/stats")[2]), {"requests": 2})
 
     def test_unknown_paths(self):
-        for path in ("/missing", "/health/", "/health?extra=1"):
+        for path in ("/missing", "/health/", "/nope?x=1"):
             with self.subTest(path=path):
                 self.assertEqual(self.request(path)[0], 404)
+
+    def test_health_with_extra_query(self):
+        self.assertEqual(self.request("/health?extra=1"), (200, "application/json", b'{"status":"ok"}'))
 
     def test_smoke(self):
         check(f"http://127.0.0.1:{self.server.server_port}")

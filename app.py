@@ -21,12 +21,13 @@ class Server(ThreadingHTTPServer):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         requests = self.server.count_request()
-        if self.path == "/health":
+        path = self.path.partition("?")[0]
+        if path == "/health":
             content_type, body = "application/json", b'{"status":"ok"}'
-        elif self.path == "/version":
+        elif path == "/version":
             content_type = "application/json"
             body = json.dumps({"revision": os.environ.get("DEVFLOW_REVISION", "unknown")}).encode("utf-8")
-        elif self.path == "/":
+        elif path == "/":
             content_type = "text/html; charset=utf-8"
             body = f'''<!doctype html>
 <html lang="zh-Hant">
@@ -36,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
 <p><label for="requests">目前請求數</label>：<output id="requests">{requests}</output></p>
 <p>此數字為本次請求的快照，重新整理頁面即可更新。</p>
 </main></body></html>'''.encode("utf-8")
-        elif self.path == "/stats":
+        elif path == "/stats":
             content_type = "application/json"
             body = json.dumps({"requests": requests}).encode("utf-8")
         else:

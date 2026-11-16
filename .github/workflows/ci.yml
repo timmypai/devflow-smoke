@@ -40,6 +40,13 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python3 .devflow/check.py --pr "$PR_BASE_SHA"
+      - name: retain real query regression base/head proof (AC-3)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: GITHUB_SHA="$SOURCE_SHA" python3 .devflow/query-gate-evidence.py "$PR_BASE_SHA"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
