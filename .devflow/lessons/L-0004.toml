@@ -1,0 +1,9 @@
+id = "L-0004"
+title = "Count only successful HTTP GET responses"
+category = "code-pattern"
+event = "Kanban t_61b76bb5; Epic t_b0023bda"
+root_cause = "Counting before routing included unknown-path 404 responses in stats and homepage snapshots. Validate the route before incrementing; successful GETs including stats itself still increment once."
+
+[enforcement]
+kind = "test"
+ref = "tests/test_404_count_http.py::test_404_requests_do_not_increment_stats"

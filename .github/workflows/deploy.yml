@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0  # Shared NO-PROOF-AC-3 journey archives the original bug base.
       - name: isolate evidence
         run: .devflow/prepare-evidence.sh
       - name: contract evidence (separate from application AC-1/AC-2)

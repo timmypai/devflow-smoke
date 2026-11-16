@@ -56,13 +56,13 @@ class HTTPTests(unittest.TestCase):
         self.assertIn("目前請求數", html)
         self.assertEqual(re.search(r'<output[^>]*>([0-9]+)</output>', html)[1], "1")
 
-    def test_every_get_counts_and_home_uses_same_snapshot(self):
+    def test_only_successful_gets_count_and_home_uses_same_snapshot(self):
         self.assertEqual(json.loads(self.request("/stats")[2]), {"requests": 1})
         for path in ("/health", "/version", "/missing"):
             self.request(path)
         html = self.request("/")[2].decode("utf-8")
-        self.assertEqual(re.search(r'<output[^>]*>([0-9]+)</output>', html)[1], "5")
-        self.assertEqual(json.loads(self.request("/stats")[2]), {"requests": 6})
+        self.assertEqual(re.search(r'<output[^>]*>([0-9]+)</output>', html)[1], "4")
+        self.assertEqual(json.loads(self.request("/stats")[2]), {"requests": 5})
 
     def test_concurrent_gets_do_not_lose_counts(self):
         with ThreadPoolExecutor(max_workers=12) as pool:

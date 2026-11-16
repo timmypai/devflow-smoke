@@ -47,6 +47,17 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: GITHUB_SHA="$SOURCE_SHA" python3 .devflow/query-gate-evidence.py "$PR_BASE_SHA"
+      - name: retain NO-PROOF-AC-3 isolated 404 assertion base/head proof
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          expected_base=c7bf3287a5231e12b15dca45a9f6ff9eaeda32a7
+          if [ "$PR_BASE_SHA" = "$expected_base" ]; then
+            GITHUB_SHA="$SOURCE_SHA" python3 .devflow/no-proof-evidence.py "$PR_BASE_SHA"
+          else
+            printf 'NO-PROOF-AC-3 SKIP: actual=%s expected=%s (historical proof only)\n' "$PR_BASE_SHA" "$expected_base"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

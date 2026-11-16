@@ -23,10 +23,12 @@ python3 smoke.py http://127.0.0.1:8080 --expected-revision local
 不執行 git，也不需要 checkout。不指定 `--expected-revision` 時，smoke 仍驗證 `/stats`、`/health` 及 HTML 首頁，只略過 `/version`。
 其他路徑回傳 404。
 
-計數來源是每個服務實例的記憶體計數器，所有 GET（含 `/`、`/health`、`/version`、`/stats` 自身及 404）
-各加一，回應快照包含該次 GET；鎖保護多執行緒併發，不同實例互不污染。新實例或重啟歸零，
-不跨重啟持久化，其他 HTTP 方法不在此契約。首頁重新整理才更新，不即時輪詢；favicon、
-healthcheck 等額外 GET 也會增加數字。隔離 HTTP 測試驗精確增量，部署 journeys 只驗單調增加。
+計數來源是每個服務實例的記憶體計數器，成功（200）的 GET（含 `/`、`/health`、`/version`、`/stats` 自身）
+各加一，404 不計數；回應快照包含該次成功 GET；鎖保護多執行緒併發，不同實例互不污染。新實例或重啟歸零，
+不跨重啟持久化，其他 HTTP 方法不在此契約。首頁重新整理才更新，不即時輪詢；healthcheck 等額外成功 GET 也會增加數字，
+favicon 等 404 不增加。隔離 HTTP 測試驗精確增量；`NO-PROOF-AC-1` 在 PR 與部署共用入口
+驗 stats → 404 → 首頁 → stats 的精確成功增量。遇其他成功請求插入時留存觀測並有限重試，
+不停止 healthcheck，也不以單調增加代替 404 不計數的證明。
 
 ## 容器與 CI
 
