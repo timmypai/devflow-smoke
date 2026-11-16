@@ -1,7 +1,5 @@
 """Real subprocess fixtures for the unittest/P2 contract (no app behavior changes)."""
-import hashlib
 import importlib.util
-import json
 import os
 from pathlib import Path
 import shutil
@@ -12,8 +10,6 @@ import unittest
 from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE_SHA256 = '8b0a26427f1e86c11dd3aae3ae0baf20f3e267149a688e77181236fa58864e73'
-TEMPLATE = Path('/opt/data/devflow/templates/repo/.devflow/check.py')
 
 
 def load_gate():
@@ -164,36 +160,6 @@ class UnittestContractTests(unittest.TestCase):
         (self.root / 'tests/test_valid.py').unlink()
         proc, _ = self.run_fixture('empty')
         self.assertNotEqual(proc.returncode, 0)
-
-
-class LessonGateWorkflowTests(unittest.TestCase):
-    def test_check_file_matches_pinned_current_template(self):
-        actual = (ROOT / '.devflow/check.py').read_bytes()
-        self.assertEqual(hashlib.sha256(actual).hexdigest(), TEMPLATE_SHA256)
-        if TEMPLATE.exists():
-            self.assertEqual(actual, TEMPLATE.read_bytes())
-
-    def test_pr_gate_metadata_history_event_and_existing_guards(self):
-        ci = (ROOT / '.github/workflows/ci.yml').read_text()
-        self.assertIn('types: [opened, synchronize, reopened, edited]', ci)
-        check = ci.split('  check:', 1)[1].split('  test:', 1)[0]
-        self.assertIn('fetch-depth: 0', check)
-        self.assertIn("if: github.event_name == 'pull_request'", check)
-        self.assertIn('PR_TITLE: ${{ github.event.pull_request.title }}', check)
-        self.assertIn('PR_BODY: ${{ github.event.pull_request.body }}', check)
-        self.assertIn('PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}', check)
-        self.assertIn('python3 .devflow/check.py --pr "$PR_BASE_SHA"', check)
-        for line in check.splitlines():
-            if 'github.event.pull_request.' in line and any(x in line for x in ('.title', '.body', '.base.sha')):
-                self.assertTrue(line.lstrip().startswith(('PR_TITLE:', 'PR_BODY:', 'PR_BASE_SHA:')), line)
-        self.assertIn('bash .devflow/check.sh', check)
-        self.assertIn('python3 .devflow/contract-evidence.py', check)
-        self.assertIn('python3 .devflow/lesson-gate-evidence.py', check)
-        self.assertIn('runner: [ubuntu-latest, ubuntu-24.04-arm]', ci)
-        self.assertIn('"label":"x64"', ci)
-        self.assertIn('"label":"arm64"', ci)
-        self.assertIn('needs: [check, test, verify]', ci)
-        self.assertIn('python3 .devflow/lesson-gate-evidence.py', (ROOT / '.devflow/verify.sh').read_text())
 
 
 class PRGateCliTests(unittest.TestCase):

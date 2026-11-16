@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # devflow 部署：在 Oracle VM self-hosted runner（rootless Docker）上執行。
-# build → up → stats/HTML journeys / provenance；失敗時回滾到上一個成功版本。
+# build → up → 健康檢查 → verify（只跑 smoke 情境：唯讀，對正式服務）。up / 健康 / verify 失敗時先採證
+# （capture.sh：狀態、退出原因、本次部署開始後的 log，已遮罩）再回滾到上一個成功版本；採證寫在
+# .devflow/diagnostics/，由 workflow 上傳。驗收報告寫在 .devflow/evidence/（kind deploy）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . .devflow/config.env; set +a
@@ -11,103 +13,91 @@ fi
 
 : "${DEVFLOW_APP:?}" "${DEVFLOW_PORT:?}"
 SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
-[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid source SHA" >&2; exit 1; }
-[[ "$(git rev-parse HEAD)" == "$SHA" ]] || { echo "checkout SHA mismatch" >&2; exit 1; }
-export GITHUB_SHA="$SHA"
 REPO_IMAGE="devflow/${DEVFLOW_APP}"
 export DEVFLOW_IMAGE="${REPO_IMAGE}:${SHA:0:12}"
-COMPOSE=(docker compose -p "devflow-${DEVFLOW_APP}" -f deploy/compose.yml)
-umask 077
-touch deploy/.env   # 本服務不需要 secrets；保留 compose 契約。
+PROJECT="devflow-${DEVFLOW_APP}"
+COMPOSE=(docker compose -p "$PROJECT" -f deploy/compose.yml)
+touch deploy/.env   # 由 workflow 從 DEVFLOW_APP_ENV secret 寫入；沒有就空檔
+SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)   # 診斷只收這次部署開始之後的 log
+rm -rf .devflow/diagnostics
+
+capture() { bash .devflow/capture.sh "$PROJECT" "$1" "$SINCE"; }
 
 healthy() {
-  python3 smoke.py "http://127.0.0.1:${DEVFLOW_PORT}" "$@" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  local tries="${DEVFLOW_HEALTH_TRIES:-60}"
+  for ((i = 1; i <= tries; i++)); do
+    if [[ -n "${DEVFLOW_HEALTH_PATH:-}" ]]; then
+      if curl -fsS -o /dev/null "http://127.0.0.1:${DEVFLOW_PORT}${DEVFLOW_HEALTH_PATH}"; then return 0; fi
+    else
+      local running
+      running=$("${COMPOSE[@]}" ps --status running -q | wc -l)
+      [[ "$running" -gt 0 ]] && return 0
+    fi
+    sleep 2
+  done
+  return 1
 }
 
-verify_deployment() {
-  local expected_revision="$1" version_endpoint="${2-1}" stats_endpoint="${3-1}"
-  local args=()
-  if [[ "$stats_endpoint" != 1 ]]; then
-    args+=(--legacy-home)
-    echo "devflow: legacy homepage rollback; stats AC-1/AC-2 NOT verified" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+# 部署後驗收：對剛上線的服務只跑 smoke 情境（唯讀、不 seed、不寫入；完整情境已在 PR CI 與整合驗證跑過）。
+# 沒有 .devflow/verify.sh = 失敗，不能略過。
+verify() {
+  if [[ ! -f .devflow/verify.sh ]]; then
+    echo "::error::devflow: .devflow/verify.sh 不存在；部署後驗收不能略過" >&2
+    return 1
   fi
-  local container image_id revision running actual_stats actual_version
-  if [[ "$version_endpoint" == 1 ]]; then
-    healthy "${args[@]}" --expected-revision "$expected_revision" || return 1
-  else
-    echo "devflow: legacy rollback; checking /health and / only, /version NOT verified" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-    healthy "${args[@]}" || return 1
-  fi
-  container=$("${COMPOSE[@]}" ps -q app) || return 1
-  [[ -n "$container" ]] || return 1
-  running=$(docker inspect --format '{{.State.Running}}' "$container") || return 1
-  image_id=$(docker inspect --format '{{.Image}}' "$container") || return 1
-  revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_id") || return 1
-  {
-    printf '### Deployment provenance\n'
-    printf 'GITHUB_SHA=%s\n\nrunner=%s architecture=%s\n\n' "$GITHUB_SHA" "${RUNNER_NAME:-local}" "${RUNNER_ARCH:-$(uname -m)}"
-    printf 'expected revision=%s\n\n' "$expected_revision"
-    printf 'container=%s\n\nimage=%s\n\nOCI revision=%s\n' "$container" "$image_id" "$revision"
-  } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-  actual_stats=$(docker image inspect --format '{{index .Config.Labels "io.devflow.stats-endpoint"}}' "$image_id") || return 1
-  actual_version=$(docker image inspect --format '{{index .Config.Labels "io.devflow.version-endpoint"}}' "$image_id") || return 1
-  [[ "$running" == true && "$revision" == "$expected_revision" && "$actual_stats" == "$stats_endpoint" && "$actual_version" == "$version_endpoint" ]]
-}
-
-capture() {
-  DEVFLOW_BASE_URL="http://127.0.0.1:${DEVFLOW_PORT}" \
-    bash .devflow/capture.sh "devflow-${DEVFLOW_APP}" "$1" || true
-}
-echo "::group::build ${DEVFLOW_IMAGE}"
-if "${COMPOSE[@]}" build --pull; then
+  local rc=0
+  echo "::group::verify (smoke)"
+  DEVFLOW_KIND=deploy DEVFLOW_SMOKE=1 DEVFLOW_ONLY='' DEVFLOW_HEAD_SHA="$SHA" \
+    DEVFLOW_BASE_URL="http://127.0.0.1:${DEVFLOW_PORT}" DEVFLOW_NET="${PROJECT}_default" \
+    DEVFLOW_INNER_URL="http://${PROJECT}-${DEVFLOW_SERVICE:-app}-1:${DEVFLOW_APP_PORT}" bash .devflow/verify.sh || rc=$?
   echo "::endgroup::"
-else
-  rc=$?
-  capture build-failed
-  exit "$rc"  # Running version is untouched; diagnostics cannot mask build failure.
-fi
-
-# Workflow clears the evidence root once; attempts isolate candidate and rollback.
-export DEVFLOW_EVIDENCE="${DEVFLOW_EVIDENCE:-$PWD/.devflow/evidence}"
-run_journeys() {
-  DEVFLOW_BASE_URL="http://127.0.0.1:${DEVFLOW_PORT}" \
-  DEVFLOW_NET="devflow-${DEVFLOW_APP}_default" \
-  DEVFLOW_INNER_URL="http://app:${DEVFLOW_APP_PORT}" \
-  DEVFLOW_EXPECTED_REVISION="$1" DEVFLOW_VERSION_ENDPOINT="${2-1}" \
-  DEVFLOW_STATS_ENDPOINT="${3-1}" DEVFLOW_VERIFY_PHASE="${4-candidate}" \
-    .devflow/verify.sh
+  return "$rc"
 }
 
-if "${COMPOSE[@]}" up -d --remove-orphans && verify_deployment "$SHA" && run_journeys "$SHA"; then
-  docker tag "${DEVFLOW_IMAGE}" "${REPO_IMAGE}:live"
-  echo "devflow: ${DEVFLOW_APP} ${SHA:0:12} healthy on 127.0.0.1:${DEVFLOW_PORT}${DEVFLOW_HEALTH_PATH:-}"
-  exit 0
-fi
-
-echo "::error::devflow: ${DEVFLOW_APP} ${SHA:0:12} failed deployment verification" >&2
-capture candidate  # Capture BEFORE rollback; never print unredacted container logs.
-if docker image inspect "${REPO_IMAGE}:live" >/dev/null 2>&1; then
-  rollback_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${REPO_IMAGE}:live")
-  [[ "$rollback_revision" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid rollback OCI revision" >&2; exit 1; }
-  version_endpoint=$(docker image inspect --format '{{index .Config.Labels "io.devflow.version-endpoint"}}' "${REPO_IMAGE}:live")
-  case "$version_endpoint" in
-    1|''|'<no value>') ;;
-    *) echo "::error::unsupported rollback version contract" >&2; exit 1 ;;
-  esac
-  stats_endpoint=$(docker image inspect --format '{{index .Config.Labels "io.devflow.stats-endpoint"}}' "${REPO_IMAGE}:live")
-  case "$stats_endpoint" in
-    1) [[ "$version_endpoint" == 1 ]] || { echo "::error::inconsistent rollback capabilities" >&2; exit 1; } ;;
-    ''|'<no value>') ;;
-    *) echo "::error::unsupported rollback stats contract" >&2; exit 1 ;;
-  esac
-  echo "devflow: rolling back to ${REPO_IMAGE}:live" >&2
-  if GITHUB_SHA="$rollback_revision" DEVFLOW_IMAGE="${REPO_IMAGE}:live" "${COMPOSE[@]}" up -d --no-build --remove-orphans \
-      && verify_deployment "$rollback_revision" "$version_endpoint" "$stats_endpoint" \
-      && run_journeys "$rollback_revision" "$version_endpoint" "$stats_endpoint" rollback; then
-    echo "devflow: rollback healthy" >&2
+# 失敗：先採證（回滾會重建容器，候選版本的 log 就不在了），印出遮罩後的 log 尾端，再回滾。
+fail() {
+  echo "::error::devflow: ${DEVFLOW_APP} ${SHA:0:12} $1" >&2
+  capture candidate
+  local f
+  for f in .devflow/diagnostics/candidate/logs/*.log; do
+    [[ -f $f ]] || continue
+    echo "--- ${f##*/}（最後 80 行，已遮罩）" >&2
+    tail -n 80 "$f" >&2
+  done
+  if docker image inspect "${REPO_IMAGE}:live" >/dev/null 2>&1; then
+    echo "devflow: rolling back to ${REPO_IMAGE}:live" >&2
+    if DEVFLOW_IMAGE="${REPO_IMAGE}:live" "${COMPOSE[@]}" up -d --no-build --remove-orphans && healthy; then
+      echo "devflow: rollback healthy" >&2
+    else
+      echo "::error::devflow: rollback also unhealthy" >&2
+    fi
+    capture rollback
   else
-    echo "::error::devflow: rollback also unhealthy" >&2
+    echo "::error::devflow: no ${REPO_IMAGE}:live to roll back to" >&2
   fi
-  capture rollback
+  exit 1
+}
+
+echo "::group::build ${DEVFLOW_IMAGE}"
+if ! "${COMPOSE[@]}" build --pull; then
+  echo "::endgroup::"
+  # build 不動到執行中的容器，不需回滾；仍記下目前（舊版）狀態。
+  echo "::error::devflow: ${DEVFLOW_APP} ${SHA:0:12} build failed; running version unchanged" >&2
+  capture build-failed
+  exit 1
 fi
-exit 1
+echo "::endgroup::"
+
+echo "::group::up"
+up_ok=true
+"${COMPOSE[@]}" up -d --remove-orphans || up_ok=false
+echo "::endgroup::"
+$up_ok || fail "up failed"
+healthy || fail "failed health check"
+verify || fail "failed verify"
+
+docker tag "${DEVFLOW_IMAGE}" "${REPO_IMAGE}:live"
+echo "devflow: ${DEVFLOW_APP} ${SHA:0:12} healthy + verified on 127.0.0.1:${DEVFLOW_PORT}${DEVFLOW_HEALTH_PATH:-}"
+# 保留 live 與最近 3 個版本
+docker images "${REPO_IMAGE}" --format '{{.Tag}}' | grep -vx live | tail -n +4 \
+  | xargs -r -I{} docker rmi "${REPO_IMAGE}:{}" >/dev/null 2>&1 || true

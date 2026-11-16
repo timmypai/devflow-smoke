@@ -5,5 +5,5 @@ event = "https://github.com/timmypai/devflow-smoke/pull/7 (Kanban t_d823c244)"
 root_cause = "discover(start_dir, pattern=filename) also collects same-named files in nested packages. The original fixture lacked __init__.py, so it never exercised that recursion. Load only the selected source module; verify a real nested package leaves no execution marker or JUnit case."
 
 [enforcement]
-kind = "journey"
-ref = ".devflow/verify.sh::LESSON-GATE-AC-1"
+kind = "test"
+ref = "tests/test_lesson_gate.py::test_selector_excludes_same_named_tests_in_nested_package"

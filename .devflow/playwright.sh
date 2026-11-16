@@ -1,22 +1,43 @@
 #!/usr/bin/env bash
+# 在 Playwright 官方映像內跑 .devflow/ui 的 ui / api 情境（主機不必裝 Node 或瀏覽器）。
+# 映像版本 = .devflow/ui/package.json 釘死的 @playwright/test 版本。事件、截圖與 JSON 報告寫到 $DEVFLOW_EVIDENCE
+# （容器內 /evidence；事件檔與 verify.sh 的 shell 情境共用 scenario-events.jsonl）。
+# DEVFLOW_ONLY（完整 id 或整條 AC）/ DEVFLOW_SMOKE=1 轉成 --grep，篩掉的情境不會出現在報告。
+# 有篩選時 0 個符合不算錯（例如只篩 shell 情境）：該跑的情境有沒有跑，由 acceptance.py gate 依 `Covers:` 檢查；
+# 沒篩選時 0 個 test 仍是錯。DEVFLOW_TRACE 非空 = 全程 trace。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-: "${DEVFLOW_EVIDENCE:?}" "${DEVFLOW_INNER_URL:?}" "${DEVFLOW_NET:?}"
-# Official image includes native Chromium for both amd64 and arm64.
-# Timeout kills the client, --rm and explicit trap also remove its container.
-name="devflow-browser-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
-relative=$(python3 -c 'import os; print(os.path.relpath(os.environ["DEVFLOW_EVIDENCE"], os.getcwd()))')
-[[ "$relative" != ../* && "$relative" != .. ]]
-# Rootless UID 0 maps to the runner owner; rootful Docker needs its real UID.
-user="$(id -u):$(id -g)"
-security=$(docker info --format '{{json .SecurityOptions}}')
-if [[ "$security" == *rootless* ]]; then user=0:0; fi
-timeout 300 docker run --rm --name "$name" --init --ipc=host \
-  --network "$DEVFLOW_NET" --user "$user" \
-  -e HOME=/tmp -e CI=1 -e DEVFLOW_INNER_URL -e DEVFLOW_EXPECTED_REVISION \
-  -e DEVFLOW_VERSION_ENDPOINT -e DEVFLOW_STATS_ENDPOINT -e DEVFLOW_VERIFY_PHASE \
-  -e DEVFLOW_EVIDENCE="/work/$relative" \
-  -v "$PWD:/work" -w /work/.devflow/ui \
-  mcr.microsoft.com/playwright:v1.58.2-noble \
-  bash -ec 'npm ci --no-audit --no-fund && npx --no-install playwright test'
+E=$(realpath -m "${DEVFLOW_EVIDENCE:-.devflow/evidence}")
+mkdir -p "$E/shots" .devflow/ui/node_modules   # node_modules：匿名 volume 的掛載點，主機先建才不是 root 的
+touch "$E/scenario-events.jsonl"
+v=$(grep -oE '"@playwright/test": *"[0-9]+\.[0-9]+\.[0-9]+"' .devflow/ui/package.json | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+: "${v:?pin an exact @playwright/test version (x.y.z) in .devflow/ui/package.json}"
+
+# Playwright 以 test 的完整標題路徑（含檔名，空白連接）比對 --grep；標題是 "<id> <說明>[ @smoke]"。
+only=${DEVFLOW_ONLY:-}
+read -ra entries <<<"${only//,/ }"
+ids=''
+for x in "${entries[@]}"; do
+  if [[ ! $x =~ ^t_[0-9A-Za-z]+/AC-[0-9]+(\.S[0-9]+)?$ ]]; then
+    echo "DEVFLOW_ONLY: '$x' 不是 t_xxx/AC-n 或 t_xxx/AC-n.Sm" >&2; exit 2
+  fi
+  x=${x//./[.]}
+  [[ $x == *"[.]S"* ]] || x+='[.]S[0-9]+'
+  ids+="${ids:+|}$x"
+done
+grep=''
+if [[ -n $ids ]]; then grep+="(?=.*(^| )($ids)( |\$))"; fi
+if [[ ${DEVFLOW_SMOKE:-} == 1 ]]; then grep+='(?=.* @smoke( |$))'; fi
+args=()
+if [[ -n $grep ]]; then args+=(--grep "^$grep" --pass-with-no-tests); fi
+[[ -z ${DEVFLOW_TRACE:-} ]] || args+=(--trace on)
+# 容器以 root 跑：結束前把 /evidence 與 npm 可能新建的 package-lock.json 交還主機使用者（不論測試成敗），
+# self-hosted runner 下次才清得掉。
+docker run --rm --ipc=host --network "${DEVFLOW_NET:?}" \
+  -e BASE_URL="${DEVFLOW_INNER_URL:?}" -e CI=1 -e DEVFLOW_EVENTS=/evidence/scenario-events.jsonl \
+  -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+  -v "$PWD/.devflow/ui:/ui" -v /ui/node_modules -v "$E:/evidence" -w /ui \
+  "mcr.microsoft.com/playwright:v${v}-noble" \
+  bash -c 'if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi >/dev/null && npx playwright test "$@"
+    rc=$?; chown -R "$HOST_UID:$HOST_GID" /evidence; [ ! -f package-lock.json ] || chown "$HOST_UID:$HOST_GID" package-lock.json; exit $rc' \
+  playwright "${args[@]}"
