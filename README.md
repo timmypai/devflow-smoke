@@ -15,8 +15,9 @@ python3 smoke.py http://127.0.0.1:8080 --expected-revision local
 | GET 路徑 | 狀態碼 | Content-Type | 回應契約 |
 | --- | --- | --- | --- |
 | `/health` | 200 | `application/json` | `{"status":"ok"}` |
-| `/` | 200 | `text/html; charset=utf-8` | HTML 保留 `hello devflow`，可見「目前請求數」及本次 GET 的整數快照 |
+| `/` | 200 | `text/html; charset=utf-8` | HTML 保留 `hello devflow`，可見「目前請求數」及本次 GET 的整數快照；按「更新」透過 `/stats` JSON 更新同一頁面，不整頁重載 |
 | `/stats` | 200 | `application/json` | 解析後精確單鍵 `{"requests": <非負整數>}`，不接受 bool／浮點／字串 |
+| `/stats?format=text` | 200 | `text/plain; charset=utf-8` | 精確為 `requests: N`（N 是非負十進位整數），不附換行；可帶其他參數，如 `/stats?probe=1&format=text` |
 | `/version` | 200 | `application/json` | 解析後精確為 `{"revision":"<DEVFLOW_REVISION 原值>"}` |
 
 `/version` 僅在環境變數不存在時回 `unknown`，空字串保持空字串；使用 JSON serializer 跳脫，
@@ -25,8 +26,11 @@ python3 smoke.py http://127.0.0.1:8080 --expected-revision local
 
 計數來源是每個服務實例的記憶體計數器，成功（200）的 GET（含 `/`、`/health`、`/version`、`/stats` 自身）
 各加一，404 不計數；回應快照包含該次成功 GET；鎖保護多執行緒併發，不同實例互不污染。新實例或重啟歸零，
-不跨重啟持久化，其他 HTTP 方法不在此契約。首頁重新整理才更新，不即時輪詢；healthcheck 等額外成功 GET 也會增加數字，
+不跨重啟持久化，其他 HTTP 方法不在此契約。首頁只在按「更新」時取得最新快照，不自動輪詢；healthcheck 等額外成功 GET 也會增加數字，
 favicon 等 404 不增加。
+
+JSON 與純文字格式共用同一計數器，每次請求仍只加一。`/stats` 未指定 `format=text` 時保持 JSON；
+既有端點仍接受額外查詢參數，`format=text` 不會改變 `/`、`/health` 或 `/version` 的格式。
 
 ## 測試、CI 與部署（devflow 契約）
 

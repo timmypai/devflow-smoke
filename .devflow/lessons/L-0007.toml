@@ -1,0 +1,9 @@
+id = "L-0007"
+title = "Generate document sentinels outside the browser secure context"
+category = "verification"
+event = "PR https://github.com/timmypai/devflow-smoke/pull/12; CI https://github.com/timmypai/devflow-smoke/actions/runs/43892714283"
+root_cause = "The UI Given called browser crypto.randomUUID(), which is available on localhost but absent on the plain-HTTP Docker hostname used by CI and deployment smoke. Generate the token with node:crypto in the test runner and pass it into the document. Keep both the document sentinel and continuous main-frame navigation monitoring, and verify the journeys over non-localhost HTTP."
+
+[enforcement]
+kind = "journey"
+ref = ".devflow/ui/ac.spec.ts::t_68ba7728/AC-1.S1"
