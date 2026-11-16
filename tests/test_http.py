@@ -47,6 +47,27 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(payload, {"requests": expected})
             self.assertIs(type(payload["requests"]), int)
 
+    def test_stats_text_and_json_share_one_count_per_successful_get(self):
+        self.assertEqual(json.loads(self.request("/stats")[2]), {"requests": 1})
+        for path, expected in (("/stats?format=text", 2),
+                               ("/stats?probe=1&format=text", 3)):
+            self.assertEqual(self.request(path),
+                             (200, "text/plain; charset=utf-8", f"requests: {expected}".encode()))
+        self.assertEqual(self.request("/health?format=text"),
+                         (200, "application/json", b'{"status":"ok"}'))
+        self.assertEqual(self.request("/version?format=text")[0:2], (200, "application/json"))
+        html = self.request("/?format=text")[2].decode("utf-8")
+        self.assertEqual(re.search(r'<output[^>]*>([0-9]+)</output>', html)[1], "6")
+        for path in ("/missing", "/missing?format=text", "/stats/?format=text"):
+            self.assertEqual(self.request(path)[0], 404)
+        self.assertEqual(json.loads(self.request("/stats")[2]), {"requests": 7})
+
+    def test_stats_other_formats_keep_json(self):
+        for expected, query in enumerate(("x=1", "format=json", "format=", "format=other"), 1):
+            status, content_type, body = self.request("/stats?" + query)
+            self.assertEqual((status, content_type), (200, "application/json"))
+            self.assertEqual(json.loads(body), {"requests": expected})
+
     def test_root(self):
         status, content_type, body = self.request("/")
         self.assertEqual((status, content_type), (200, "text/html; charset=utf-8"))
